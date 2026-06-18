@@ -20,10 +20,6 @@ const SS = SpreadsheetApp.getActiveSpreadsheet()
 // ★ここに好きなパスワードを設定してください（HTMLと同じにすること）
 const SECRET_TOKEN = 'linochino'
 
-// 打刻種類の変換マップ
-const TYPE_JP = { clock_in:'出勤', break_start:'休憩イン', break_end:'休憩アウト', clock_out:'退勤' }
-const TYPE_EN = { '出勤':'clock_in', '休憩イン':'break_start', '休憩アウト':'break_end', '退勤':'clock_out' }
-
 // シート名の定義
 const SHEET = {
   teams:      'チーム',
@@ -37,7 +33,7 @@ const SHEET = {
 const HEADERS = {
   teams:      ['ID', '名前', '順序'],
   employees:  ['ID', '名前', 'チームID', '有効', '順序', '休日曜日(JSON)', 'デフォルトシフト'],
-  attendance: ['日付', 'スタッフ名', '打刻', '時刻', 'スタッフID', '記録ID'],
+  attendance: ['日付', 'スタッフ名', '出勤', '休憩イン', '休憩アウト', '退勤', 'スタッフID'],
   requests:   ['ID', 'スタッフID', '日付', '申請種類', '理由', '時間数', 'ステータス', '申請日時'],
   shifts:     ['ID', 'スタッフID', '日付', 'シフト種類']
 }
@@ -51,9 +47,9 @@ function getSheet(key) {
     sh.getRange(1, 1, 1, HEADERS[key].length).setFontWeight('bold').setBackground('#fce8ef')
     // 打刻記録シートは見やすく設定
     if (key === 'attendance') {
-      sh.getRange('A2:A').setNumberFormat('yyyy/m/d')  // 日付 → 2026/6/18
-      sh.getRange('D2:D').setNumberFormat('H:mm')        // 時刻 → 19:00
-      sh.hideColumns(5, 2)  // E列(スタッフID)とF列(記録ID)を非表示にする
+      sh.getRange('A2:A').setNumberFormat('yyyy/m/d')   // 日付 → 2026/6/18
+      sh.getRange('C2:F').setNumberFormat('H:mm')         // 出勤〜退勤 → 9:00
+      sh.hideColumns(7)  // G列(スタッフID)を非表示にする
     }
   }
   return sh
@@ -110,17 +106,33 @@ function toIso(v) {
   return String(v || '')
 }
 
-// 打刻記録の1行を共通フォーマットに変換（新旧の列名どちらにも対応）
-function mapAttendanceRow(r) {
-  const rawType = r['打刻'] || r['打刻種類']   // 新:打刻 / 旧:打刻種類
-  const rawTs   = r['時刻'] || r['日時']        // 新:時刻 / 旧:日時
-  return {
-    employee_id:   String(r['スタッフID']),
-    employee_name: r['スタッフ名'] || '',
-    type:          TYPE_EN[rawType] || rawType,
-    date:          normDate(r['日付']),
-    timestamp:     toIso(rawTs)
+// 打刻記録（横並び：1人1日1行）を個別レコードの配列に展開する
+// 列： 日付 / スタッフ名 / 出勤 / 休憩イン / 休憩アウト / 退勤 / スタッフID
+// 例： 1行 → 出勤・休憩イン・休憩アウト・退勤 の最大4レコードに分解
+function getAttendanceRecords() {
+  const COL_TO_TYPE = {
+    '出勤': 'clock_in', '休憩イン': 'break_start',
+    '休憩アウト': 'break_end', '退勤': 'clock_out'
   }
+  const out = []
+  for (const r of sheetToObjects('attendance')) {
+    const date  = normDate(r['日付'])
+    const empId = String(r['スタッフID'] || '')
+    const name  = r['スタッフ名'] || ''
+    for (const col in COL_TO_TYPE) {
+      const v = r[col]
+      if (v) {
+        out.push({
+          employee_id:   empId,
+          employee_name: name,
+          type:          COL_TO_TYPE[col],
+          date:          date,
+          timestamp:     toIso(v)
+        })
+      }
+    }
+  }
+  return out
 }
 
 // =====================================================
@@ -210,9 +222,7 @@ function handleInit(params) {
     }))
 
   // 今日の打刻（スタッフIDごとに最新の種類を取得）
-  const attRaw = sheetToObjects('attendance')
-    .map(mapAttendanceRow)
-    .filter(r => r.date === today)
+  const attRaw = getAttendanceRecords().filter(r => r.date === today)
   const attMap = {}
   attRaw.forEach(r => {
     const empId = r.employee_id
@@ -228,8 +238,7 @@ function handleInit(params) {
 // 打刻記録取得（月次集計用）
 function handleGetAttendance(params) {
   const { empId, from, to } = params
-  const data = sheetToObjects('attendance')
-    .map(mapAttendanceRow)
+  const data = getAttendanceRecords()
     .filter(r => r.employee_id === empId && r.date >= from && r.date <= to)
     .map(r => ({
       employee_id: r.employee_id,
@@ -286,8 +295,7 @@ function handleGetAttendanceRecords(params) {
     empMap[String(e['ID'])] = e['名前']
   }
 
-  const data = sheetToObjects('attendance')
-    .map(mapAttendanceRow)
+  const data = getAttendanceRecords()
     .filter(r => r.date >= from && r.date <= to)
     .map(r => ({
       date:          r.date,
@@ -308,40 +316,60 @@ function handleGetAttendanceRecords(params) {
 // データ書き込み処理
 // =====================================================
 
-// 打刻記録
+// 打刻記録（1人1日1行・横並び）
+// 列： 日付(1) / スタッフ名(2) / 出勤(3) / 休憩イン(4) / 休憩アウト(5) / 退勤(6) / スタッフID(7)
+const ATT_COL = { clock_in: 3, break_start: 4, break_end: 5, clock_out: 6 }
+
 function handleRecord(data) {
-  const id  = uuid()
-  const now = new Date()  // 実際の日時（時刻列に入る）
+  const now = new Date()  // 実際の打刻時刻
+  const targetCol = ATT_COL[data.type]
+  if (!targetCol) return { error: '不明な打刻種類: ' + data.type }
+
   // スタッフ名を取得
   const emp = sheetToObjects('employees').find(e => String(e['ID']) === String(data.employee_id))
   const empName = emp ? emp['名前'] : ''
-  const typeJP = TYPE_JP[data.type] || data.type
-  // 日付は本物のDate値にして「2026/6/18」表示、時刻も本物のDate値にして「19:00」表示
-  const dateValue = new Date(data.date + 'T00:00:00+09:00')
+  const dateValue = new Date(data.date + 'T00:00:00+09:00')  // 「2026/6/18」表示用の日付値
 
   const sh = getSheet('attendance')
-  // 列順： 日付 / スタッフ名 / 打刻 / 時刻 / スタッフID / 記録ID
-  sh.appendRow([dateValue, empName, typeJP, now, data.employee_id, id])
-  // 念のため、この行の表示形式を設定（既存シートでも見やすく）
-  const row = sh.getLastRow()
-  sh.getRange(row, 1).setNumberFormat('yyyy/m/d')  // 日付
-  sh.getRange(row, 4).setNumberFormat('H:mm')        // 時刻
 
-  // 打った順ではなく「日付 → スタッフ名 → 時刻」の順に並べ替える
-  // （同じ日の同じ人の打刻がまとまる）
+  // 既存の「その日・その人」の行を探す
+  const values = sh.getDataRange().getValues()  // ヘッダー含む
+  let targetRow = -1
+  for (let i = 1; i < values.length; i++) {
+    const rowDate  = normDate(values[i][0])              // A列:日付
+    const rowEmpId = String(values[i][6] || '')           // G列:スタッフID
+    if (rowDate === data.date && rowEmpId === String(data.employee_id)) {
+      targetRow = i + 1  // 1始まりの行番号
+      break
+    }
+  }
+
+  if (targetRow === -1) {
+    // その日初めての打刻 → 新しい行を作る
+    const rowData = [dateValue, empName, '', '', '', '', data.employee_id]
+    rowData[targetCol - 1] = now
+    sh.appendRow(rowData)
+    targetRow = sh.getLastRow()
+    sh.getRange(targetRow, 1).setNumberFormat('yyyy/m/d')   // 日付
+    sh.getRange(targetRow, 3, 1, 4).setNumberFormat('H:mm')  // 出勤〜退勤
+  } else {
+    // 既存の行の該当列だけ更新
+    sh.getRange(targetRow, targetCol).setValue(now).setNumberFormat('H:mm')
+  }
+
+  // 日付 → スタッフ名 の順に並べ替え
   sortAttendance(sh)
 
-  return { success: true, id, timestamp: toIso(now) }
+  return { success: true, timestamp: toIso(now) }
 }
 
-// 打刻記録を 日付→スタッフ名→時刻 の順に並べ替え
+// 打刻記録を 日付→スタッフ名 の順に並べ替え
 function sortAttendance(sh) {
   const lastRow = sh.getLastRow()
   if (lastRow <= 2) return  // ヘッダー+1行以下なら並べ替え不要
-  sh.getRange(2, 1, lastRow - 1, 6).sort([
+  sh.getRange(2, 1, lastRow - 1, 7).sort([
     { column: 1, ascending: true },  // 日付
-    { column: 2, ascending: true },  // スタッフ名
-    { column: 4, ascending: true }   // 時刻
+    { column: 2, ascending: true }   // スタッフ名
   ])
 }
 
