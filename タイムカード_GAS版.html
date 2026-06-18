@@ -1,0 +1,1117 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>タイムカード</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+JP:wght@400;500;700&display=swap" rel="stylesheet">
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: 'Noto Sans JP', 'Hiragino Sans', sans-serif;
+            background: #f4f4f5; min-height: 100vh; color: #111827;
+        }
+        header {
+            background: #111827; color: #fff;
+            padding: 20px 20px 18px; position: sticky; top: 0; z-index: 10;
+        }
+        header h1 { font-size: 20px; font-weight: 700; letter-spacing: 1px; font-family: 'Inter', sans-serif; }
+        header small { font-size: 12px; color: #9ca3af; display: block; margin-top: 3px; }
+        .wrap { max-width: 480px; margin: 0 auto; padding: 16px; }
+
+        /* スタッフ一覧 */
+        .team-hd {
+            font-size: 11px; font-weight: 700; color: #6b7280;
+            letter-spacing: 2px; text-transform: uppercase;
+            margin: 24px 0 8px 4px;
+        }
+        .emp-row {
+            background: white; border-radius: 14px; padding: 16px 18px; margin-bottom: 8px;
+            cursor: pointer; display: flex; justify-content: space-between; align-items: center;
+            box-shadow: 0 1px 4px rgba(0,0,0,.06);
+            -webkit-tap-highlight-color: transparent; transition: all .15s;
+        }
+        .emp-row:active { transform: scale(.98); background: #f9fafb; }
+        .emp-row .name { font-size: 17px; font-weight: 600; color: #111827; }
+        .badge { font-size: 11px; padding: 4px 12px; border-radius: 999px; font-weight: 600; }
+        .b-none  { background: #f3f4f6; color: #9ca3af; }
+        .b-work  { background: #dcfce7; color: #15803d; }
+        .b-break { background: #fef9c3; color: #854d0e; }
+        .b-done  { background: #e0e7ff; color: #3730a3; }
+
+        /* 戻るボタン */
+        .back-btn {
+            background: none; border: none; color: #6b7280;
+            font-size: 14px; font-weight: 600; cursor: pointer; padding: 8px 0 16px;
+            display: flex; align-items: center; gap: 6px;
+        }
+
+        /* 選択カード */
+        .sel-card {
+            background: white; border-radius: 16px; padding: 24px 20px; text-align: center;
+            margin-bottom: 20px; box-shadow: 0 1px 4px rgba(0,0,0,.06);
+        }
+        .sel-card-deco { display: none; }
+        .sel-name { font-size: 26px; font-weight: 700; color: #111827; margin-bottom: 6px; }
+        .sel-status { color: #6b7280; font-size: 13px; font-weight: 500; }
+
+        /* 打刻ボタン */
+        .act-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+        .act-cell { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+        .act-btn {
+            width: 100%; padding: 28px 8px; border: none; border-radius: 16px;
+            font-size: 16px; font-weight: 700; cursor: pointer; line-height: 1.6;
+            transition: all .15s; font-family: 'Noto Sans JP', sans-serif;
+            box-shadow: 0 2px 8px rgba(0,0,0,.1);
+        }
+        .act-btn:active { transform: scale(.94); box-shadow: none; }
+        .act-btn:disabled { opacity: .25; cursor: not-allowed; transform: none; box-shadow: none; }
+        .act-time { font-size: 15px; font-weight: 700; color: #374151; min-height: 22px; font-family: 'Inter', sans-serif; }
+        .a-ci { background: #059669; color: white; }
+        .a-bs { background: #d97706; color: white; }
+        .a-be { background: #2563eb; color: white; }
+        .a-co { background: #dc2626; color: white; }
+
+        /* 申請ボタン群 */
+        .req-btn {
+            width: 100%; margin-top: 10px; padding: 14px 18px;
+            background: white; color: #374151; border: 1.5px solid #e5e7eb; border-radius: 12px;
+            font-size: 14px; font-weight: 600; cursor: pointer;
+            font-family: 'Noto Sans JP', sans-serif; transition: all .12s;
+            text-align: left;
+        }
+        .req-btn:active { background: #f9fafb; }
+
+        /* 完了画面 */
+        .ok-wrap { text-align: center; padding: 60px 20px 40px; }
+        .ok-deco { display: none; }
+        .ok-icon { font-size: 64px; margin-bottom: 16px; }
+        .ok-act  { font-size: 22px; font-weight: 700; color: #111827; margin-bottom: 6px; }
+        .ok-who  { color: #6b7280; margin-bottom: 6px; font-weight: 500; font-size: 14px; }
+        .ok-time { font-size: 56px; font-weight: 700; color: #111827; margin-bottom: 8px; letter-spacing: 1px; font-family: 'Inter', sans-serif; }
+        .ok-msg  { font-size: 14px; color: #9ca3af; margin-bottom: 36px; }
+        .ok-btn  {
+            padding: 15px 44px; background: #111827;
+            color: white; border: none; border-radius: 12px;
+            font-size: 16px; font-weight: 700; cursor: pointer;
+            font-family: 'Noto Sans JP', sans-serif;
+        }
+
+        /* 管理リンク */
+        .admin-lnk { text-align: center; margin-top: 32px; padding-bottom: 24px; }
+        .admin-lnk a { color: #9ca3af; font-size: 12px; text-decoration: none; cursor: pointer; }
+
+        /* 申請フォーム */
+        .req-form {
+            background: white; border-radius: 16px; padding: 22px;
+            box-shadow: 0 1px 4px rgba(0,0,0,.06);
+        }
+        .req-form label { font-size: 12px; color: #6b7280; display: block; margin-bottom: 6px; font-weight: 600; letter-spacing: .5px; }
+        .req-form select, .req-form input[type="date"],
+        .req-form input[type="time"], .req-form input[type="number"], .req-form textarea {
+            width: 100%; padding: 12px 14px; border: 1.5px solid #e5e7eb; border-radius: 10px;
+            font-size: 15px; margin-bottom: 16px;
+            font-family: 'Noto Sans JP', sans-serif; background: #f9fafb; color: #111827; outline: none;
+        }
+        .req-form select:focus, .req-form input:focus, .req-form textarea:focus { border-color: #111827; background: white; }
+        .req-form textarea { height: 80px; resize: none; }
+        .req-submit {
+            width: 100%; padding: 15px; background: #111827;
+            color: white; border: none; border-radius: 12px;
+            font-size: 16px; font-weight: 700; cursor: pointer; margin-top: 4px;
+            font-family: 'Noto Sans JP', sans-serif;
+        }
+
+        /* 打刻補正 */
+        .fix-row {
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 12px 4px; border-bottom: 1px solid #f3f4f6;
+        }
+        .fix-row:last-of-type { border-bottom: none; }
+        .fix-row .fix-lbl { font-size: 15px; font-weight: 600; color: #374151; }
+        .fix-row input[type="time"] {
+            width: 140px; padding: 9px 12px; border: 1.5px solid #e5e7eb; border-radius: 10px;
+            font-size: 15px; font-family: 'Inter', sans-serif;
+            background: #f9fafb; color: #111827; outline: none; margin-bottom: 0;
+        }
+        .fix-row input[type="time"]:focus { border-color: #111827; background: white; }
+
+        .err { background: #fef2f2; color: #b91c1c; border-radius: 12px; padding: 14px; margin: 12px 0; font-size: 14px; }
+        .loading { text-align: center; color: #9ca3af; padding: 40px; font-size: 15px; }
+        .hidden { display: none !important; }
+
+        /* セットアップ画面 */
+        .setup-card {
+            background: white; border-radius: 16px; padding: 28px 24px; margin-top: 20px;
+            box-shadow: 0 1px 4px rgba(0,0,0,.06); text-align: center;
+        }
+        .setup-card h2 { font-size: 20px; color: #111827; margin-bottom: 8px; font-weight: 700; }
+        .setup-card p  { font-size: 14px; color: #6b7280; margin-bottom: 20px; line-height: 1.7; }
+        .setup-steps {
+            text-align: left; background: #f9fafb; border-radius: 12px;
+            padding: 16px 20px; margin-bottom: 20px; font-size: 13px; color: #374151; line-height: 2;
+        }
+        .setup-steps b { color: #111827; font-weight: 700; }
+        .url-input {
+            width: 100%; padding: 13px 14px; border: 1.5px solid #e5e7eb; border-radius: 10px;
+            font-size: 14px; margin-bottom: 12px; font-family: 'Inter', sans-serif;
+            background: #f9fafb; color: #111827; outline: none;
+        }
+        .url-input:focus { border-color: #111827; background: white; }
+        .setup-btn {
+            width: 100%; padding: 15px; background: #111827;
+            color: white; border: none; border-radius: 12px;
+            font-size: 16px; font-weight: 700; cursor: pointer;
+            font-family: 'Noto Sans JP', sans-serif;
+        }
+
+        /* 管理画面 */
+        .admin-card {
+            background: white; border-radius: 14px; padding: 18px;
+            box-shadow: 0 1px 4px rgba(0,0,0,.06); margin-bottom: 10px;
+        }
+        .admin-card h3 { font-size: 14px; color: #374151; margin-bottom: 12px; font-weight: 700; }
+        .admin-input {
+            width: 100%; padding: 10px 14px; border: 1.5px solid #e5e7eb; border-radius: 10px;
+            font-size: 15px; margin-bottom: 10px;
+            font-family: 'Noto Sans JP', sans-serif; background: #f9fafb; color: #111827; outline: none;
+        }
+        .admin-input:focus { border-color: #111827; background: white; }
+        .admin-btn {
+            padding: 9px 18px; background: #111827;
+            color: white; border: none; border-radius: 8px;
+            font-size: 13px; font-weight: 600; cursor: pointer; font-family: 'Noto Sans JP', sans-serif;
+        }
+        .admin-btn.red { background: #dc2626; }
+        .admin-row {
+            display: flex; justify-content: space-between; align-items: center;
+            padding: 10px 12px; border-bottom: 1px solid #f3f4f6; font-size: 14px;
+        }
+        .admin-row:last-child { border-bottom: none; }
+        .admin-row-name { color: #111827; font-weight: 600; }
+        .del-btn {
+            background: none; border: 1.5px solid #e5e7eb; color: #9ca3af;
+            border-radius: 8px; padding: 4px 10px; font-size: 12px; cursor: pointer;
+            font-family: 'Noto Sans JP', sans-serif;
+        }
+        .section-title { font-size: 11px; font-weight: 700; color: #9ca3af; letter-spacing: 2px; text-transform: uppercase; margin: 20px 0 8px 4px; }
+        .url-reset { text-align: center; margin-top: 12px; }
+        .url-reset a { color: #9ca3af; font-size: 12px; cursor: pointer; text-decoration: underline; }
+    </style>
+</head>
+<body>
+<header>
+    <h1>タイムカード</h1>
+    <small id="hd-date"></small>
+</header>
+
+<div class="wrap">
+
+    <!-- セットアップ画面（初回のみ） -->
+    <div id="v-setup">
+        <div class="setup-card">
+            <h2>🔗 初期設定</h2>
+            <p>Google Apps Script のウェブアプリURLを入力してください</p>
+            <div class="setup-steps">
+                <b>①</b> Googleスプレッドシートを新規作成<br>
+                <b>②</b> メニュー「拡張機能」→「Apps Script」を開く<br>
+                <b>③</b> GAS_コード.js の内容を貼り付けて保存<br>
+                <b>④</b> 「デプロイ」→「新しいデプロイ」<br>
+                <b>⑤</b> 種類：ウェブアプリ、アクセス：全員 に設定<br>
+                <b>⑥</b> デプロイして表示されたURLをここに貼る
+            </div>
+            <input class="url-input" id="gas-url-input" type="url"
+                placeholder="https://script.google.com/macros/s/.../exec">
+            <button class="setup-btn" onclick="saveGasUrl()">✅ 接続する</button>
+        </div>
+    </div>
+
+    <!-- 職員一覧 -->
+    <div id="v-list" class="hidden">
+        <div id="emp-list"><div class="loading">読み込み中… 🌸</div></div>
+        <div class="admin-lnk">
+            <a onclick="showAdmin()">⚙ 管理画面</a>
+        </div>
+    </div>
+
+    <!-- 打刻ボタン -->
+    <div id="v-act" class="hidden">
+        <button class="back-btn" onclick="goList()">← 戻る</button>
+        <div class="sel-card">
+            <div class="sel-card-deco">🌸 🌼 🌸</div>
+            <div class="sel-name" id="sel-name"></div>
+            <div class="sel-status" id="sel-st"></div>
+        </div>
+        <div class="act-grid">
+            <div class="act-cell">
+                <button class="act-btn a-ci" id="b-ci" onclick="rec('clock_in')">🟢<br>出勤</button>
+                <div class="act-time" id="t-ci"></div>
+            </div>
+            <div class="act-cell">
+                <button class="act-btn a-bs" id="b-bs" onclick="rec('break_start')">☕<br>休憩イン</button>
+                <div class="act-time" id="t-bs"></div>
+            </div>
+            <div class="act-cell">
+                <button class="act-btn a-be" id="b-be" onclick="rec('break_end')">🔵<br>休憩アウト</button>
+                <div class="act-time" id="t-be"></div>
+            </div>
+            <div class="act-cell">
+                <button class="act-btn a-co" id="b-co" onclick="rec('clock_out')">🔴<br>退勤</button>
+                <div class="act-time" id="t-co"></div>
+            </div>
+        </div>
+        <button class="req-btn" onclick="goReq()">📝 シフト変更申請</button>
+        <button class="req-btn" style="margin-top:10px;color:#5a8a5a;border-color:#bbe0bb" onclick="goCar()">🚗 自車使用申請</button>
+        <button class="req-btn" style="margin-top:10px;color:#e07050;border-color:#fed7aa" onclick="goFix()">⏰ 打刻補正申請（押し忘れ）</button>
+        <button class="req-btn" style="margin-top:10px;color:#7c6090;border-color:#ddd1f0" onclick="goShiftView()">📅 今月のシフト表</button>
+        <button class="req-btn" style="margin-top:10px;color:#b05080;border-color:#f9a8d4" onclick="goMyRecord()">📊 自分の勤務記録</button>
+    </div>
+
+    <!-- シフト変更申請 -->
+    <div id="v-req" class="hidden">
+        <button class="back-btn" onclick="show('v-act')">← 戻る</button>
+        <div class="sel-card">
+            <div class="sel-card-deco">🌸 🌼 🌸</div>
+            <div class="sel-name" id="req-name"></div>
+            <div class="sel-status">シフト変更申請</div>
+        </div>
+        <div class="req-form">
+            <label>📅 日付</label>
+            <input type="date" id="req-date">
+            <label>✏️ 変更内容</label>
+            <select id="req-type" onchange="toggleHours()">
+                <option value="有給">有給（全日）</option>
+                <option value="AM有休">AM有休（午前休）</option>
+                <option value="PM有休">PM有休（午後休）</option>
+                <option value="時間有給">時間有給（1時間〜）</option>
+                <option value="変則">変則</option>
+                <option value="中抜け">中抜け（外出・減給）</option>
+                <option value="研修">研修</option>
+                <option value="休">休み</option>
+            </select>
+            <div id="hours-row" style="display:none">
+                <label>⏰ 使用時間数</label>
+                <select id="req-hours">
+                    <option value="1">1時間</option><option value="2">2時間</option>
+                    <option value="3">3時間</option><option value="4">4時間</option>
+                    <option value="5">5時間</option><option value="6">6時間</option>
+                    <option value="7">7時間</option><option value="8">8時間</option>
+                </select>
+            </div>
+            <div id="nakamuke-row" style="display:none">
+                <label>🚶 外出した時間</label><input type="time" id="nak-start">
+                <label>🏃 戻ってきた時間</label><input type="time" id="nak-end">
+            </div>
+            <label>💬 理由・コメント（任意）</label>
+            <textarea id="req-reason" placeholder="例：外部研修のため、通院のため など"></textarea>
+            <button class="req-submit" onclick="submitRequest()">✉️ 申請する</button>
+        </div>
+    </div>
+
+    <!-- 自車使用申請 -->
+    <div id="v-car" class="hidden">
+        <button class="back-btn" onclick="show('v-act')">← 戻る</button>
+        <div class="sel-card">
+            <div class="sel-card-deco">🚗 自車使用申請</div>
+            <div class="sel-name" id="car-name"></div>
+            <div class="sel-status">業務で自分の車を使った記録</div>
+        </div>
+        <div class="req-form">
+            <label>📅 日付</label><input type="date" id="car-date">
+            <label>🎯 目的</label>
+            <select id="car-purpose">
+                <option value="送迎">送迎</option>
+                <option value="支援会議">支援会議</option>
+                <option value="その他">その他</option>
+            </select>
+            <label>📏 走行距離（km）</label>
+            <input type="number" id="car-distance" min="0" step="0.1" placeholder="例：12.5" inputmode="decimal">
+            <label>💬 メモ（任意）</label>
+            <textarea id="car-memo" placeholder="例：○○さん宅まで送迎"></textarea>
+            <button class="req-submit" style="background:linear-gradient(135deg,#bbe0bb,#7fbf7f)" onclick="submitCar()">✉️ 記録する</button>
+        </div>
+    </div>
+
+    <!-- 打刻補正申請 -->
+    <div id="v-fix" class="hidden">
+        <button class="back-btn" onclick="show('v-act')">← 戻る</button>
+        <div class="sel-card">
+            <div class="sel-card-deco">⏰ 打刻補正申請</div>
+            <div class="sel-name" id="fix-name"></div>
+            <div class="sel-status">押し忘れた打刻を申請してください</div>
+        </div>
+        <div class="req-form">
+            <label>📅 対象日</label><input type="date" id="fix-date">
+            <label style="margin-bottom:10px">🕐 補正する時刻（該当するものだけ入力）</label>
+            <div class="fix-row"><span class="fix-lbl">🟢 出勤</span><input type="time" id="fix-ci"></div>
+            <div class="fix-row"><span class="fix-lbl">☕ 休憩イン</span><input type="time" id="fix-bs"></div>
+            <div class="fix-row"><span class="fix-lbl">🔵 休憩アウト</span><input type="time" id="fix-be"></div>
+            <div class="fix-row" style="margin-bottom:16px"><span class="fix-lbl">🔴 退勤</span><input type="time" id="fix-co"></div>
+            <label>💬 コメント（任意）</label>
+            <textarea id="fix-reason" placeholder="例：会議が伸びて退勤を押し忘れました"></textarea>
+            <button class="req-submit" style="background:linear-gradient(135deg,#fed7aa,#fb923c)" onclick="submitFix()">✉️ 申請する</button>
+        </div>
+    </div>
+
+    <!-- 完了画面 -->
+    <div id="v-ok" class="hidden">
+        <div class="ok-wrap">
+            <div class="ok-deco">🌸 🌼 🌷 🌼 🌸</div>
+            <div class="ok-icon">💮</div>
+            <div class="ok-act" id="ok-act"></div>
+            <div class="ok-who" id="ok-who"></div>
+            <div class="ok-time" id="ok-time"></div>
+            <div class="ok-msg" id="ok-msg">今日もお疲れさまです 💕</div>
+            <button class="ok-btn" onclick="goList()">トップへ戻る</button>
+        </div>
+    </div>
+
+    <!-- シフト表 -->
+    <div id="v-shift" class="hidden">
+        <button class="back-btn" onclick="show('v-act')">← 戻る</button>
+        <div style="display:flex;justify-content:center;align-items:center;gap:20px;margin-bottom:10px">
+            <button class="back-btn" style="font-size:20px;padding:0 8px" onclick="changeShiftViewMonth(-1)">◀</button>
+            <span id="shift-view-label" style="font-size:17px;font-weight:700;color:#c05070"></span>
+            <button class="back-btn" style="font-size:20px;padding:0 8px" onclick="changeShiftViewMonth(1)">▶</button>
+        </div>
+        <p style="font-size:12px;color:#d08098;margin-bottom:10px;text-align:center">変更・承認済みのシフトを表示しています</p>
+        <div id="shift-view-tbl" style="overflow-x:auto;-webkit-overflow-scrolling:touch"></div>
+    </div>
+
+    <!-- 個人記録 -->
+    <div id="v-personal" class="hidden">
+        <button class="back-btn" onclick="show('v-act')">← 戻る</button>
+        <div style="text-align:center;margin-bottom:12px">
+            <div id="personal-name" style="font-size:18px;font-weight:700;color:#c05070;margin-bottom:8px"></div>
+            <div style="display:flex;justify-content:center;align-items:center;gap:20px">
+                <button class="back-btn" style="font-size:20px;padding:0 10px" onclick="changePersonalMonth(-1)">◀</button>
+                <span id="personal-month-label" style="font-size:16px;font-weight:700;color:#c05070"></span>
+                <button class="back-btn" style="font-size:20px;padding:0 10px" onclick="changePersonalMonth(1)">▶</button>
+            </div>
+        </div>
+        <div id="personal-tbl" style="overflow-x:auto;-webkit-overflow-scrolling:touch"></div>
+    </div>
+
+    <!-- 管理画面 -->
+    <div id="v-admin" class="hidden">
+        <button class="back-btn" onclick="show('v-list')">← 戻る</button>
+        <div class="sel-card">
+            <div class="sel-card-deco">⚙ 管理画面</div>
+            <div class="sel-name" style="font-size:20px">スタッフ管理</div>
+        </div>
+        <div class="admin-card">
+            <h3>🌸 チームを追加</h3>
+            <input class="admin-input" id="new-team-name" placeholder="チーム名">
+            <button class="admin-btn" onclick="addTeam()">追加する</button>
+        </div>
+        <div class="admin-card">
+            <h3>👤 スタッフを追加</h3>
+            <input class="admin-input" id="new-emp-name" placeholder="スタッフ名">
+            <label style="font-size:12px;color:#c06080;display:block;margin-bottom:6px">所属チーム</label>
+            <select class="admin-input" id="new-emp-team" style="margin-bottom:10px"></select>
+            <button class="admin-btn" onclick="addEmployee()">追加する</button>
+        </div>
+        <div class="section-title">現在のスタッフ一覧</div>
+        <div id="admin-emp-list"></div>
+        <div class="url-reset"><a onclick="resetUrl()">🔗 GAS URLを変更する</a></div>
+    </div>
+
+</div>
+
+<script>
+// =====================================================
+// Google Apps Script API通信
+// =====================================================
+
+let GAS_URL = localStorage.getItem('tc_gas_url') || ''
+
+// ★GAS_コード.js の SECRET_TOKEN と同じパスワードを入れてください
+const TOKEN = 'linochino'
+
+async function gasGet(params) {
+    const url = new URL(GAS_URL)
+    Object.entries({ ...params, token: TOKEN }).forEach(([k, v]) => url.searchParams.set(k, String(v)))
+    const res = await fetch(url.toString(), { redirect: 'follow' })
+    if (!res.ok) throw new Error('通信エラー ' + res.status)
+    const json = await res.json()
+    if (json.error) throw new Error(json.error)
+    return json
+}
+
+async function gasPost(data) {
+    const res = await fetch(GAS_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({ ...data, token: TOKEN }),
+        redirect: 'follow'
+    })
+    if (!res.ok) throw new Error('通信エラー ' + res.status)
+    const json = await res.json()
+    if (json.error) throw new Error(json.error)
+    return json
+}
+
+function saveGasUrl() {
+    const url = document.getElementById('gas-url-input').value.trim()
+    if (!url.startsWith('https://script.google.com/')) {
+        alert('Google Apps Script のURLを入力してください')
+        return
+    }
+    GAS_URL = url
+    localStorage.setItem('tc_gas_url', url)
+    init()
+}
+
+function resetUrl() {
+    if (!confirm('GAS URLをリセットしますか？')) return
+    localStorage.removeItem('tc_gas_url')
+    GAS_URL = ''
+    show('v-setup')
+}
+
+// =====================================================
+// アプリ本体
+// =====================================================
+
+const HOLIDAYS = new Set([
+    '2025-01-01','2025-01-13','2025-02-11','2025-02-23','2025-02-24','2025-03-20',
+    '2025-04-29','2025-05-03','2025-05-04','2025-05-05','2025-07-21','2025-08-11',
+    '2025-09-15','2025-09-23','2025-10-13','2025-11-03','2025-11-23','2025-11-24',
+    '2026-01-01','2026-01-12','2026-02-11','2026-02-23','2026-03-20','2026-04-29',
+    '2026-05-03','2026-05-04','2026-05-05','2026-05-06','2026-07-20','2026-08-11',
+    '2026-09-21','2026-09-22','2026-09-23','2026-10-12','2026-11-03','2026-11-23',
+])
+
+const ST = { clock_in:'勤務中', break_start:'休憩中', break_end:'勤務中（休憩後）', clock_out:'退勤済み' }
+const AL = { clock_in:'出勤', break_start:'休憩イン', break_end:'休憩アウト', clock_out:'退勤' }
+const OK_MSG = {
+    clock_in:   '今日も一日よろしくお願いします 🌸',
+    break_start:'ゆっくり休んでね ☕',
+    break_end:  'お疲れさま！引き続きよろしく 💪',
+    clock_out:  '今日もお疲れさまでした 💕'
+}
+
+let emps = [], teams = [], todaySt = {}, selEmp = null
+
+function todayStr() { return new Date().toLocaleDateString('sv-SE') }
+
+async function init() {
+    document.getElementById('hd-date').textContent =
+        new Date().toLocaleDateString('ja-JP', { year:'numeric', month:'long', day:'numeric', weekday:'short' })
+
+    if (!GAS_URL) { show('v-setup'); return }
+
+    show('v-list')
+    document.getElementById('emp-list').innerHTML = '<div class="loading">読み込み中… 🌸</div>'
+
+    try {
+        const data = await gasGet({ action: 'init', today: todayStr() })
+        teams = (data.teams || []).sort((a,b) => (a.sort_order||0)-(b.sort_order||0))
+        emps  = (data.employees || []).sort((a,b) => (a.sort_order||0)-(b.sort_order||0))
+        todaySt = {}
+        for (const r of data.attendance || []) {
+            if (!todaySt[r.employee_id]) todaySt[r.employee_id] = r.type
+        }
+        renderList()
+        scheduleMidnightReset()
+    } catch (e) {
+        document.getElementById('emp-list').innerHTML =
+            `<div class="err">⚠️ 読み込みエラー: ${e.message}<br><small>GAS URLの設定を確認してください</small></div>`
+    }
+}
+
+function renderList() {
+    let h = ''
+    for (const t of teams) {
+        const te = emps.filter(e => e.team_id === t.id)
+        if (!te.length) continue
+        h += `<div class="team-hd">🌸 ${t.name}</div>`
+        for (const e of te) {
+            const s = todaySt[e.id]
+            let cls = 'b-none', lb = '未打刻'
+            if (s === 'clock_in' || s === 'break_end') { cls = 'b-work';  lb = ST[s] }
+            else if (s === 'break_start')               { cls = 'b-break'; lb = ST[s] }
+            else if (s === 'clock_out')                 { cls = 'b-done';  lb = ST[s] }
+            h += `<div class="emp-row" onclick="selEmpFn('${e.id}')">
+                    <span class="name">${e.name}</span>
+                    <span class="badge ${cls}">${lb}</span>
+                  </div>`
+        }
+    }
+    if (!h) h = '<div class="loading">スタッフが登録されていません。<br>管理画面から追加してください 🌸</div>'
+    document.getElementById('emp-list').innerHTML = h
+}
+
+async function selEmpFn(id) {
+    selEmp = emps.find(e => e.id === id)
+    if (!selEmp) return
+    const s = todaySt[id]
+    document.getElementById('sel-name').textContent = selEmp.name
+    document.getElementById('sel-st').textContent   = '現在: ' + (ST[s] || '未打刻')
+    document.getElementById('b-ci').disabled = !!s
+    document.getElementById('b-bs').disabled = s !== 'clock_in' && s !== 'break_end'
+    document.getElementById('b-be').disabled = s !== 'break_start'
+    document.getElementById('b-co').disabled = !s || s === 'clock_out'
+
+    const TID = { clock_in:'t-ci', break_start:'t-bs', break_end:'t-be', clock_out:'t-co' }
+    Object.values(TID).forEach(tid => { document.getElementById(tid).textContent = '' })
+
+    try {
+        const today = todayStr()
+        const res = await gasGet({ action:'attendance', empId:id, from:today, to:today })
+        const recs = (res.data || []).sort((a,b) => new Date(a.timestamp)-new Date(b.timestamp))
+        for (const r of recs) {
+            const tid = TID[r.type]
+            if (tid) document.getElementById(tid).textContent =
+                new Date(r.timestamp).toLocaleTimeString('ja-JP', { hour:'2-digit', minute:'2-digit' })
+        }
+    } catch(e) { /* 時刻表示は任意 */ }
+
+    show('v-act')
+}
+
+async function rec(type) {
+    const allBtns = ['b-ci','b-bs','b-be','b-co']
+    allBtns.forEach(id => { document.getElementById(id).disabled = true })
+    try {
+        const res = await gasPost({ action:'record', employee_id:selEmp.id, type, date:todayStr() })
+        todaySt[selEmp.id] = type
+        const timestamp = res.timestamp || new Date().toISOString()
+        const timeStr = new Date(timestamp).toLocaleTimeString('ja-JP', { hour:'2-digit', minute:'2-digit' })
+        const TID = { clock_in:'t-ci', break_start:'t-bs', break_end:'t-be', clock_out:'t-co' }
+        if (TID[type]) document.getElementById(TID[type]).textContent = timeStr
+        document.getElementById('ok-act').textContent  = AL[type] + 'しました'
+        document.getElementById('ok-who').textContent  = selEmp.name
+        document.getElementById('ok-time').textContent = timeStr
+        document.getElementById('ok-msg').textContent  = OK_MSG[type] || '今日もありがとう 💕'
+        show('v-ok')
+    } catch(e) {
+        alert('エラー: ' + e.message)
+        selEmpFn(selEmp.id)
+    }
+}
+
+function goList() { renderList(); show('v-list') }
+
+function scheduleMidnightReset() {
+    const now = new Date()
+    const midnight = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1)
+    setTimeout(() => {
+        ['t-ci','t-bs','t-be','t-co'].forEach(id => {
+            const el = document.getElementById(id)
+            if (el) el.textContent = ''
+        })
+        init()
+    }, midnight - now)
+}
+
+function show(id) {
+    ['v-setup','v-list','v-act','v-req','v-fix','v-ok','v-shift','v-personal','v-car','v-admin']
+        .forEach(v => document.getElementById(v).classList.toggle('hidden', v !== id))
+}
+
+function goReq() {
+    document.getElementById('req-name').textContent = selEmp.name
+    const tomorrow = new Date(); tomorrow.setDate(tomorrow.getDate() + 1)
+    document.getElementById('req-date').value = tomorrow.toLocaleDateString('sv-SE')
+    document.getElementById('req-reason').value = ''
+    document.getElementById('nak-start').value = ''
+    document.getElementById('nak-end').value   = ''
+    document.getElementById('hours-row').style.display    = 'none'
+    document.getElementById('nakamuke-row').style.display = 'none'
+    show('v-req')
+}
+
+function toggleHours() {
+    const type = document.getElementById('req-type').value
+    document.getElementById('hours-row').style.display    = type === '時間有給' ? 'block' : 'none'
+    document.getElementById('nakamuke-row').style.display = type === '中抜け'   ? 'block' : 'none'
+}
+
+function goFix() {
+    document.getElementById('fix-name').textContent = selEmp.name
+    document.getElementById('fix-date').value = todayStr()
+    document.getElementById('fix-ci').value = ''
+    document.getElementById('fix-bs').value = ''
+    document.getElementById('fix-be').value = ''
+    document.getElementById('fix-co').value = ''
+    document.getElementById('fix-reason').value = ''
+    show('v-fix')
+}
+
+async function submitFix() {
+    const date   = document.getElementById('fix-date').value
+    const ci     = document.getElementById('fix-ci').value
+    const bs     = document.getElementById('fix-bs').value
+    const be     = document.getElementById('fix-be').value
+    const co     = document.getElementById('fix-co').value
+    const reason = document.getElementById('fix-reason').value
+    if (!date) return alert('日付を選択してください')
+    if (!ci && !bs && !be && !co) return alert('補正する時刻を1つ以上入力してください')
+    const times = {}
+    if (ci) times.clock_in    = ci
+    if (bs) times.break_start = bs
+    if (be) times.break_end   = be
+    if (co) times.clock_out   = co
+    try {
+        await gasPost({ action:'request', employee_id:selEmp.id, date, requested_type:'打刻補正',
+            reason:JSON.stringify({times, comment:reason}), requested_hours:0, status:'pending' })
+        showOk('打刻補正を申請しました', selEmp.name + '　' + date, '申請完了 ✓', '確認後に反映されます 🌸')
+    } catch(e) { alert('エラー: ' + e.message) }
+}
+
+function goCar() {
+    document.getElementById('car-name').textContent = selEmp.name
+    document.getElementById('car-date').value = todayStr()
+    document.getElementById('car-purpose').value = '送迎'
+    document.getElementById('car-distance').value = ''
+    document.getElementById('car-memo').value = ''
+    show('v-car')
+}
+
+async function submitCar() {
+    const date     = document.getElementById('car-date').value
+    const purpose  = document.getElementById('car-purpose').value
+    const distance = parseFloat(document.getElementById('car-distance').value)
+    const memo     = document.getElementById('car-memo').value
+    if (!date) return alert('日付を選択してください')
+    if (!distance || distance <= 0) return alert('走行距離（km）を入力してください')
+    try {
+        await gasPost({ action:'request', employee_id:selEmp.id, date, requested_type:'自車使用',
+            status:'approved', reason:JSON.stringify({purpose, distance, comment:memo}), requested_hours:0 })
+        showOk('自車使用を記録しました', selEmp.name + '　' + date, `${purpose}　${distance}km`, 'お疲れさまでした 🚗💕')
+    } catch(e) { alert('エラー: ' + e.message) }
+}
+
+async function submitRequest() {
+    const date  = document.getElementById('req-date').value
+    const type  = document.getElementById('req-type').value
+    let reason  = document.getElementById('req-reason').value
+    let hours   = type === '時間有給' ? parseInt(document.getElementById('req-hours').value) : 0
+    if (!date) return alert('日付を選択してください')
+    if (type === '中抜け') {
+        const bs = document.getElementById('nak-start').value
+        const be = document.getElementById('nak-end').value
+        if (!bs || !be) return alert('外出した時間と戻ってきた時間を入力してください')
+        reason = JSON.stringify({ break_start:bs, break_end:be, comment:reason })
+    }
+    try {
+        await gasPost({ action:'request', employee_id:selEmp.id, date, requested_type:type,
+            reason, requested_hours:hours, status:'pending' })
+        showOk('シフト変更申請を送りました', selEmp.name + '　' + date + '　' + type, '申請完了 ✓', '確認後に反映されます 🌸')
+    } catch(e) { alert('エラー: ' + e.message) }
+}
+
+function showOk(act, who, time, msg) {
+    document.getElementById('ok-act').textContent  = act
+    document.getElementById('ok-who').textContent  = who
+    document.getElementById('ok-time').textContent = time
+    document.getElementById('ok-msg').textContent  = msg
+    show('v-ok')
+}
+
+// ---- シフト表 ----
+let shiftViewOffset = 0
+function goShiftView() { shiftViewOffset = 0; loadShiftView(); show('v-shift') }
+function changeShiftViewMonth(d) { shiftViewOffset += d; loadShiftView() }
+
+function getShiftViewMonth() {
+    const now = new Date()
+    const d = new Date(now.getFullYear(), now.getMonth() + shiftViewOffset, 1)
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`
+}
+
+async function loadShiftView() {
+    const month = getShiftViewMonth()
+    const [year, mon] = month.split('-')
+    const lastDay = new Date(parseInt(year), parseInt(mon), 0).getDate()
+    const from = `${month}-01`, to = `${month}-${String(lastDay).padStart(2,'0')}`
+
+    document.getElementById('shift-view-label').textContent = `${year}年${parseInt(mon)}月`
+    document.getElementById('shift-view-tbl').innerHTML = '<div class="loading">読み込み中… 🌸</div>'
+
+    try {
+        const res = await gasGet({ action:'shifts', from, to })
+        const shiftMap = {}
+        for (const s of res.data || []) { if (s.shift_type) shiftMap[`${s.employee_id}_${s.date}`] = s.shift_type }
+
+        const days = []
+        for (let d = 1; d <= lastDay; d++) {
+            const date = new Date(parseInt(year), parseInt(mon)-1, d)
+            days.push({ d, dow:date.getDay(), ds:`${month}-${String(d).padStart(2,'0')}` })
+        }
+
+        const SHIFT_COLORS = {
+            '日勤':'#ffffff','午前':'#fef9c3','午後':'#ede9fe','変則':'#d1fae5',
+            '春夏':'#bfdbfe','有給':'#fce7f3','AM有休':'#fbcfe8','PM有休':'#fbcfe8',
+            '時間有給':'#fbcfe8','研修':'#bfdbfe','休':'#e0f2fe'
+        }
+
+        let hdr = '<th style="min-width:56px;position:sticky;left:0;background:#fff0f4;z-index:2;font-size:11px;padding:4px">名前</th>'
+        for (const { d, dow, ds } of days) {
+            const isHol = HOLIDAYS.has(ds)
+            const bg = (dow===0||isHol) ? '#fee2e2' : dow===6 ? '#dbeafe' : '#fff0f4'
+            hdr += `<th style="background:${bg};min-width:26px;text-align:center;font-size:10px;padding:2px 1px">${d}<br>${['日','月','火','水','木','金','土'][dow]}</th>`
+        }
+
+        let rows = ''
+        for (const t of teams) {
+            const te = emps.filter(e => e.team_id === t.id)
+            if (!te.length) continue
+            rows += `<tr><td colspan="${lastDay+1}" style="background:#fce8ef;font-size:11px;font-weight:700;padding:3px 6px;color:#c05070">${t.name}</td></tr>`
+            for (const emp of te) {
+                let cells = `<td style="position:sticky;left:0;background:white;font-size:11px;font-weight:600;padding:3px 5px;z-index:1;white-space:nowrap;border-right:1px solid #fce8ef">${emp.name}</td>`
+                for (const { dow, ds } of days) {
+                    const key = `${emp.id}_${ds}`
+                    const isWknd = dow===0||dow===6
+                    const fixedOff = (emp.fixed_off_days||[]).includes(dow)
+                    const isHoliday = HOLIDAYS.has(ds)
+                    const defaultSt = (isWknd||fixedOff||isHoliday) ? '休' : (emp.default_shift||'日勤')
+                    const st = shiftMap[key] !== undefined ? shiftMap[key] : defaultSt
+                    const isOverride = shiftMap[key] !== undefined
+                    const bg = SHIFT_COLORS[st] || '#fff'
+                    const style = isOverride
+                        ? `background:${bg};text-align:center;font-size:9px;padding:2px 1px;border:1.5px solid #f472b6;font-weight:700`
+                        : `background:${bg};text-align:center;font-size:9px;padding:2px 1px;border:1px solid #fce8ef`
+                    cells += `<td style="${style}">${st}</td>`
+                }
+                rows += `<tr>${cells}</tr>`
+            }
+        }
+
+        document.getElementById('shift-view-tbl').innerHTML =
+            `<table style="border-collapse:collapse;background:white;border-radius:12px;box-shadow:0 2px 8px rgba(255,150,170,.2)">
+            <thead><tr>${hdr}</tr></thead><tbody>${rows}</tbody></table>`
+    } catch(e) {
+        document.getElementById('shift-view-tbl').innerHTML = `<div class="err">エラー: ${e.message}</div>`
+    }
+}
+
+// ---- 個人記録 ----
+let personalEmpId = null, personalEmpName = '', personalMonthOffset = 0
+
+function goMyRecord() {
+    if (!selEmp) return
+    personalEmpId = selEmp.id; personalEmpName = selEmp.name; personalMonthOffset = 0
+    loadPersonalRecord(); show('v-personal')
+}
+function changePersonalMonth(d) { personalMonthOffset += d; loadPersonalRecord() }
+
+function getPersonalMonth() {
+    const now = new Date()
+    const d = new Date(now.getFullYear(), now.getMonth() + personalMonthOffset, 1)
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`
+}
+
+function toHHMMFn(mins) {
+    const m = Math.abs(Math.floor(mins))
+    return `${Math.floor(m/60)}:${String(m%60).padStart(2,'0')}`
+}
+
+function calcMinsFn(records) {
+    let ci = null, bs = null, brk = 0, result = 0
+    const sorted = [...records].sort((a,b) => new Date(a.timestamp)-new Date(b.timestamp))
+    for (const r of sorted) {
+        const t = new Date(r.timestamp)
+        if (r.type === 'clock_in') {
+            const cap = new Date(t); cap.setHours(9,0,0,0); ci = t < cap ? cap : t
+        } else if (r.type === 'break_start') {
+            bs = t
+        } else if (r.type === 'break_end' && bs) {
+            brk += (t - bs) / 60000; bs = null
+        } else if (r.type === 'clock_out' && ci) {
+            result = (t - ci) / 60000 - brk
+        }
+    }
+    const hasCO = records.some(r => r.type === 'clock_out')
+    if (hasCO && ci) { const elapsed = result + brk; if (elapsed >= 420 && brk < 60) result = elapsed - 60 }
+    return Math.max(0, Math.floor(result))
+}
+
+function calcOvertimeFn(records) {
+    const co = [...records].reverse().find(r => r.type === 'clock_out')
+    if (!co) return 0
+    const coTime = new Date(co.timestamp)
+    const base = new Date(coTime); base.setHours(18,0,0,0)
+    return coTime > base ? Math.floor((coTime-base)/60000) : 0
+}
+
+function calcLeaveMinsFn(req) {
+    if (!req) return 0
+    const t = req.requested_type, h = req.requested_hours || 0
+    if (t === '有給' || t === '研修') return 480
+    if (t === 'AM有休' || t === 'PM有休') return 240
+    if (t === '時間有給') return h * 60
+    return 0
+}
+
+function calcNakMinsFn(req) {
+    if (!req) return 0
+    try {
+        const d = JSON.parse(req.reason || '{}')
+        if (!d.break_start || !d.break_end) return 0
+        const toM = s => { const [h,m] = s.split(':').map(Number); return h*60+m }
+        return Math.max(0, toM(d.break_end) - toM(d.break_start))
+    } catch(e) { return 0 }
+}
+
+async function loadPersonalRecord() {
+    const month = getPersonalMonth()
+    const [year, mon] = month.split('-')
+    const lastDay = new Date(parseInt(year), parseInt(mon), 0).getDate()
+    const from = `${month}-01`, to = `${month}-${String(lastDay).padStart(2,'0')}`
+
+    document.getElementById('personal-name').textContent = personalEmpName
+    document.getElementById('personal-month-label').textContent = `${year}年${parseInt(mon)}月`
+    document.getElementById('personal-tbl').innerHTML = '<div class="loading">読み込み中… 🌸</div>'
+
+    try {
+        const [attRes, reqRes] = await Promise.all([
+            gasGet({ action:'attendance', empId:personalEmpId, from, to }),
+            gasGet({ action:'requests', empId:personalEmpId, from, to })
+        ])
+
+        const attData = attRes.data || []
+        const reqData = reqRes.data || []
+
+        const byDate = {}
+        for (const r of attData) {
+            if (!byDate[r.date]) byDate[r.date] = []
+            byDate[r.date].push(r)
+        }
+        const leaveByDate = {}, nakByDate = {}, carRecords = [], pendingByDate = {}
+        for (const r of reqData) {
+            if (r.requested_type === '中抜け') {
+                if (r.status === 'approved') nakByDate[r.date] = r
+                else if (r.status === 'pending') pendingByDate[r.date] = (pendingByDate[r.date]||[]).concat([r])
+            }
+            else if (r.requested_type === '自車使用') carRecords.push(r)
+            else if (r.status === 'approved') leaveByDate[r.date] = r
+            else if (r.status === 'pending') pendingByDate[r.date] = (pendingByDate[r.date]||[]).concat([r])
+        }
+
+        const fmt = t => new Date(t).toLocaleTimeString('ja-JP', {hour:'2-digit',minute:'2-digit'})
+        const DOW = ['日','月','火','水','木','金','土']
+        let rows = '', totalMins = 0, totalOt = 0
+
+        for (let d = 1; d <= lastDay; d++) {
+            const ds = `${month}-${String(d).padStart(2,'0')}`
+            const dow = new Date(ds).getDay()
+            const recs = (byDate[ds] || []).sort((a,b) => new Date(a.timestamp)-new Date(b.timestamp))
+            const ci = recs.find(r => r.type === 'clock_in')
+            const bs = recs.find(r => r.type === 'break_start')
+            const be = recs.find(r => r.type === 'break_end')
+            const co = [...recs].reverse().find(r => r.type === 'clock_out')
+            const leave = leaveByDate[ds]
+            const leaveLabel = leave
+                ? (leave.requested_type === '時間有給' ? `時間有給${leave.requested_hours}h` : leave.requested_type)
+                : ''
+            const leaveMins = calcLeaveMinsFn(leave)
+            const nakMins   = calcNakMinsFn(nakByDate[ds])
+            const worked    = calcMinsFn(recs)
+            const dayTotal  = worked + leaveMins - nakMins
+            const ot        = calcOvertimeFn(recs)
+            const pending   = pendingByDate[ds] || []
+            if (!ci && !co && !leaveLabel && !pending.length) continue
+            totalMins += dayTotal; totalOt += ot
+            const color = (dow===0||dow===6) ? '#9ca3af' : '#374151'
+            const leaveBadge = leaveLabel
+                ? `<span style="background:#fbcfe8;color:#9d174d;font-size:9px;padding:1px 4px;border-radius:999px;font-weight:600;white-space:nowrap">${leaveLabel}</span>`
+                : ''
+            const pendingBadge = pending.length > 0
+                ? `<span style="background:#fef08a;color:#854d0e;font-size:9px;padding:2px 6px;border-radius:999px;font-weight:600;white-space:nowrap;cursor:pointer" onclick="showPendingRequests('${ds}',${JSON.stringify(pending).replace(/'/g,"&#39;")})" title="クリックで申請内容を確認">申請待ち</span>`
+                : '-'
+            rows += `<tr style="border-bottom:1px solid #fce8ef;color:${color}">
+                <td style="padding:5px 6px;font-size:12px;white-space:nowrap;font-weight:600">${parseInt(mon)}/${d}（${DOW[dow]}）</td>
+                <td style="padding:5px 3px;font-size:12px;text-align:center">${ci ? fmt(ci.timestamp) : (leaveBadge||'-')}</td>
+                <td style="padding:5px 3px;font-size:12px;text-align:center">${bs ? fmt(bs.timestamp) : '-'}</td>
+                <td style="padding:5px 3px;font-size:12px;text-align:center">${be ? fmt(be.timestamp) : '-'}</td>
+                <td style="padding:5px 3px;font-size:12px;text-align:center">${co ? fmt(co.timestamp) : '-'}</td>
+                <td style="padding:5px 3px;font-size:13px;text-align:center;font-weight:700;color:#c05070">${dayTotal > 0 ? toHHMMFn(dayTotal) : '-'}</td>
+                <td style="padding:5px 3px;font-size:12px;text-align:center;font-weight:700;color:#dc2626">${ot > 0 ? toHHMMFn(ot) : '-'}</td>
+                <td style="padding:5px 3px;font-size:12px;text-align:center">${pendingBadge}</td>
+            </tr>`
+        }
+
+        if (!rows) {
+            const carOnly = buildCarTable(carRecords, parseInt(mon))
+            document.getElementById('personal-tbl').innerHTML = carOnly ||
+                '<div style="text-align:center;color:#9ca3af;padding:40px 20px">この月の記録はありません</div>'
+            return
+        }
+        rows += `<tr style="background:#fff0f4;font-weight:700;border-top:2px solid #f9a8d4">
+            <td style="padding:6px 6px;font-size:12px" colspan="6">合計</td>
+            <td style="padding:6px 3px;font-size:13px;text-align:center;color:#c05070">${toHHMMFn(totalMins)}</td>
+            <td style="padding:6px 3px;font-size:12px;text-align:center;color:#dc2626">${totalOt > 0 ? toHHMMFn(totalOt) : '-'}</td>
+        </tr>`
+
+        document.getElementById('personal-tbl').innerHTML =
+            `<table style="width:100%;border-collapse:collapse;background:white;border-radius:12px;box-shadow:0 2px 8px rgba(255,150,170,.2)">
+                <thead><tr style="background:#fff0f4">
+                    <th style="padding:6px 6px;font-size:10px;color:#c05070;text-align:left">日付</th>
+                    <th style="padding:6px 3px;font-size:10px;color:#c05070;text-align:center">出勤</th>
+                    <th style="padding:6px 3px;font-size:10px;color:#c05070;text-align:center">休憩イン</th>
+                    <th style="padding:6px 3px;font-size:10px;color:#c05070;text-align:center">休憩アウト</th>
+                    <th style="padding:6px 3px;font-size:10px;color:#c05070;text-align:center">退勤</th>
+                    <th style="padding:6px 3px;font-size:10px;color:#c05070;text-align:center">勤務</th>
+                    <th style="padding:6px 3px;font-size:10px;color:#dc2626;text-align:center">残業</th>
+                    <th style="padding:6px 3px;font-size:10px;color:#854d0e;text-align:center">申請</th>
+                </tr></thead>
+                <tbody>${rows}</tbody>
+            </table>` + buildCarTable(carRecords, parseInt(mon))
+
+    } catch(e) {
+        document.getElementById('personal-tbl').innerHTML = `<div class="err">エラー: ${e.message}</div>`
+    }
+}
+
+function buildCarTable(carRecords, monNum) {
+    if (!carRecords || carRecords.length === 0) return ''
+    const DOW = ['日','月','火','水','木','金','土']
+    const parsed = carRecords.map(r => {
+        let purpose = '', distance = 0, comment = ''
+        try { const d = JSON.parse(r.reason||'{}'); purpose=d.purpose||''; distance=parseFloat(d.distance)||0; comment=d.comment||'' } catch(e) {}
+        return { date:r.date, purpose, distance, comment }
+    }).sort((a,b) => a.date.localeCompare(b.date))
+
+    let totalKm = 0; const byPurpose = {}; let carRows = ''
+    for (const c of parsed) {
+        totalKm += c.distance; byPurpose[c.purpose] = (byPurpose[c.purpose]||0) + c.distance
+        const dateObj = new Date(c.date); const d = dateObj.getDate(); const dow = dateObj.getDay()
+        carRows += `<tr style="border-bottom:1px solid #e0f0e0">
+            <td style="padding:5px 6px;font-size:12px;white-space:nowrap;font-weight:600;color:#3a6a3a">${monNum}/${d}（${DOW[dow]}）</td>
+            <td style="padding:5px 6px;font-size:12px;text-align:center">${c.purpose}</td>
+            <td style="padding:5px 6px;font-size:13px;text-align:center;font-weight:700;color:#2e7d32">${c.distance}km</td>
+            <td style="padding:5px 6px;font-size:11px;color:#6b7280;word-break:break-all">${c.comment||''}</td>
+        </tr>`
+    }
+    const purposeSummary = Object.entries(byPurpose).map(([p,km]) => `${p} ${Math.round(km*10)/10}km`).join('　/　')
+    carRows += `<tr style="background:#eef7ee;font-weight:700;border-top:2px solid #a8d8a8">
+        <td style="padding:6px 6px;font-size:12px" colspan="2">合計</td>
+        <td style="padding:6px 6px;font-size:13px;text-align:center;color:#2e7d32">${Math.round(totalKm*10)/10}km</td>
+        <td style="padding:6px 6px;font-size:10px;color:#3a6a3a">${purposeSummary}</td>
+    </tr>`
+    return `<div style="margin-top:24px;margin-bottom:8px;font-size:14px;font-weight:700;color:#3a6a3a">🚗 自車使用記録</div>
+        <table style="width:100%;border-collapse:collapse;background:white;border-radius:12px;box-shadow:0 2px 8px rgba(120,190,120,.2)">
+            <thead><tr style="background:#eef7ee">
+                <th style="padding:6px 6px;font-size:10px;color:#3a6a3a;text-align:left">日付</th>
+                <th style="padding:6px 6px;font-size:10px;color:#3a6a3a;text-align:center">目的</th>
+                <th style="padding:6px 6px;font-size:10px;color:#3a6a3a;text-align:center">距離</th>
+                <th style="padding:6px 6px;font-size:10px;color:#3a6a3a;text-align:left">メモ</th>
+            </tr></thead><tbody>${carRows}</tbody></table>`
+}
+
+// 保留中の申請を表示
+function showPendingRequests(date, requests) {
+    if (!Array.isArray(requests) || requests.length === 0) {
+        alert('申請がありません')
+        return
+    }
+    let msg = `📋 ${date} の申請\n\n`
+    for (let i = 0; i < requests.length; i++) {
+        const req = requests[i]
+        msg += `【申請${i+1}】\n`
+        msg += `種類: ${req.requested_type}\n`
+        if (req.requested_hours > 0) msg += `時間: ${req.requested_hours}時間\n`
+        if (req.reason) msg += `理由: ${req.reason}\n`
+        msg += `ステータス: ${req.status === 'approved' ? '✅ 承認済み' : '⏳ 承認待ち'}\n\n`
+    }
+    msg += '（スプレッドシートで承認・却下してください）'
+    alert(msg)
+}
+
+// =====================================================
+// 管理画面
+// =====================================================
+
+async function showAdmin() {
+    const pw = prompt('管理画面のパスワードを入力してください')
+    if (pw !== 'linochino') {
+        alert('パスワードが違います')
+        return
+    }
+    show('v-admin')
+    await renderAdminEmpList()
+}
+
+async function renderAdminEmpList() {
+    // チーム選択プルダウン更新
+    const sel = document.getElementById('new-emp-team')
+    sel.innerHTML = teams.length
+        ? teams.map(t => `<option value="${t.id}">${t.name}</option>`).join('')
+        : '<option value="">チームを先に追加してください</option>'
+
+    // スタッフ一覧
+    let h = ''
+    for (const t of teams) {
+        const te = emps.filter(e => e.team_id === t.id)
+        h += `<div class="admin-card">
+            <h3>🌸 ${t.name}
+                <button class="del-btn" onclick="deleteTeam('${t.id}')" style="float:right">削除</button>
+            </h3>`
+        if (!te.length) {
+            h += '<div style="color:#ccc;font-size:13px">スタッフがいません</div>'
+        } else {
+            for (const e of te) {
+                h += `<div class="admin-row">
+                    <span class="admin-row-name">${e.name}</span>
+                    <button class="del-btn" onclick="deleteEmployee('${e.id}')">削除</button>
+                </div>`
+            }
+        }
+        h += '</div>'
+    }
+    if (!h) h = '<div style="color:#ccc;text-align:center;padding:20px">チームがありません</div>'
+    document.getElementById('admin-emp-list').innerHTML = h
+}
+
+async function addTeam() {
+    const name = document.getElementById('new-team-name').value.trim()
+    if (!name) return alert('チーム名を入力してください')
+    try {
+        const res = await gasPost({ action:'addTeam', name })
+        teams.push({ id:res.id, name, sort_order:teams.length+1 })
+        document.getElementById('new-team-name').value = ''
+        await renderAdminEmpList()
+    } catch(e) { alert('エラー: ' + e.message) }
+}
+
+async function deleteTeam(id) {
+    if (!confirm('このチームを削除しますか？')) return
+    try {
+        await gasPost({ action:'deleteTeam', id })
+        teams = teams.filter(t => t.id !== id)
+        emps  = emps.filter(e => e.team_id !== id)
+        await renderAdminEmpList()
+        renderList()
+    } catch(e) { alert('エラー: ' + e.message) }
+}
+
+async function addEmployee() {
+    const name    = document.getElementById('new-emp-name').value.trim()
+    const team_id = document.getElementById('new-emp-team').value
+    if (!name) return alert('スタッフ名を入力してください')
+    if (!team_id) return alert('チームを選択してください')
+    try {
+        const res = await gasPost({ action:'addEmployee', name, team_id, fixed_off_days:[0,6], default_shift:'日勤' })
+        emps.push({ id:res.id, name, team_id, active:true, sort_order:emps.length+1, fixed_off_days:[0,6], default_shift:'日勤' })
+        document.getElementById('new-emp-name').value = ''
+        await renderAdminEmpList()
+        renderList()
+    } catch(e) { alert('エラー: ' + e.message) }
+}
+
+async function deleteEmployee(id) {
+    if (!confirm('このスタッフを削除しますか？')) return
+    try {
+        await gasPost({ action:'deleteEmployee', id })
+        emps = emps.filter(e => e.id !== id)
+        await renderAdminEmpList()
+        renderList()
+    } catch(e) { alert('エラー: ' + e.message) }
+}
+
+init()
+</script>
+</body>
+</html>
