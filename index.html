@@ -413,7 +413,27 @@
         </div>
         <div class="section-title">現在のスタッフ一覧</div>
         <div id="admin-emp-list"></div>
+        <div style="margin-top:24px;padding-top:20px;border-top:2px solid #f3f4f6">
+            <button class="req-btn" onclick="goAttendanceAdmin()" style="background:#e0f2fe;color:#0369a1;border-color:#0369a1">📋 打刻記録管理</button>
+        </div>
         <div class="url-reset"><a onclick="resetUrl()">🔗 GAS URLを変更する</a></div>
+    </div>
+
+    <!-- 打刻記録管理 -->
+    <div id="v-attendance-admin" class="hidden">
+        <button class="back-btn" onclick="show('v-admin')">← 戻る</button>
+        <div class="sel-card">
+            <div class="sel-name" style="font-size:20px">📋 打刻記録管理</div>
+        </div>
+        <div class="admin-card">
+            <h3>期間を選択</h3>
+            <label style="font-size:12px;color:#6b7280;display:block;margin-bottom:6px;font-weight:600">開始日</label>
+            <input class="admin-input" id="att-from" type="date">
+            <label style="font-size:12px;color:#6b7280;display:block;margin-bottom:6px;font-weight:600;margin-top:12px">終了日</label>
+            <input class="admin-input" id="att-to" type="date">
+            <button class="admin-btn" style="background:#0369a1;margin-top:12px" onclick="loadAttendanceRecords()">表示する</button>
+        </div>
+        <div id="attendance-records-tbl" style="margin-top:16px"></div>
     </div>
 
 </div>
@@ -606,7 +626,7 @@ function scheduleMidnightReset() {
 }
 
 function show(id) {
-    ['v-setup','v-list','v-act','v-req','v-fix','v-ok','v-shift','v-personal','v-car','v-admin']
+    ['v-setup','v-list','v-act','v-req','v-fix','v-ok','v-shift','v-personal','v-car','v-admin','v-attendance-admin']
         .forEach(v => document.getElementById(v).classList.toggle('hidden', v !== id))
 }
 
@@ -1018,6 +1038,76 @@ function showPendingRequests(date, requests) {
     }
     msg += '（スプレッドシートで承認・却下してください）'
     alert(msg)
+}
+
+// ---- 打刻記録管理 ----
+function goAttendanceAdmin() {
+    const today = new Date()
+    const month = new Date(today.getFullYear(), today.getMonth(), 1)
+    const first = month.toLocaleDateString('sv-SE')
+    const last = today.toLocaleDateString('sv-SE')
+    document.getElementById('att-from').value = first
+    document.getElementById('att-to').value = last
+    document.getElementById('attendance-records-tbl').innerHTML = ''
+    show('v-attendance-admin')
+}
+
+async function loadAttendanceRecords() {
+    const from = document.getElementById('att-from').value
+    const to = document.getElementById('att-to').value
+    if (!from || !to) return alert('日付を選択してください')
+    if (from > to) return alert('開始日が終了日より後になっています')
+
+    document.getElementById('attendance-records-tbl').innerHTML = '<div class="loading">読み込み中…</div>'
+
+    try {
+        const res = await gasGet({ action:'attendance-records', from, to })
+        const records = res.data || []
+        if (records.length === 0) {
+            document.getElementById('attendance-records-tbl').innerHTML = '<div style="text-align:center;color:#9ca3af;padding:40px">この期間の記録がありません</div>'
+            return
+        }
+
+        const byDate = {}
+        for (const r of records) {
+            if (!byDate[r.date]) byDate[r.date] = []
+            byDate[r.date].push(r)
+        }
+
+        const typeLabel = { clock_in:'出勤', break_start:'休憩イン', break_end:'休憩アウト', clock_out:'退勤' }
+        const fmt = t => new Date(t).toLocaleTimeString('ja-JP', {hour:'2-digit',minute:'2-digit'})
+        const DOW = ['日','月','火','水','木','金','土']
+        let html = ''
+
+        for (const date of Object.keys(byDate).sort()) {
+            const d = new Date(date)
+            const day = d.getDate()
+            const dow = d.getDay()
+            const grouped = {}
+            for (const r of byDate[date]) {
+                if (!grouped[r.employee_name]) grouped[r.employee_name] = []
+                grouped[r.employee_name].push(r)
+            }
+
+            html += `<div style="background:white;border-radius:12px;padding:16px;margin-bottom:12px;box-shadow:0 1px 4px rgba(0,0,0,.06)">
+                <div style="font-weight:700;font-size:15px;color:#111827;margin-bottom:12px">${date} （${DOW[dow]}）</div>`
+
+            for (const name of Object.keys(grouped).sort()) {
+                const recs = grouped[name].sort((a,b) => new Date(a.timestamp)-new Date(b.timestamp))
+                html += `<div style="font-size:13px;color:#374151;margin-bottom:8px">
+                    <strong>${name}</strong><br>`
+                for (const r of recs) {
+                    html += `${typeLabel[r.type]}: ${fmt(r.timestamp)}<br>`
+                }
+                html += `</div>`
+            }
+            html += `</div>`
+        }
+
+        document.getElementById('attendance-records-tbl').innerHTML = html
+    } catch(e) {
+        document.getElementById('attendance-records-tbl').innerHTML = `<div class="err">エラー: ${e.message}</div>`
+    }
 }
 
 // =====================================================
