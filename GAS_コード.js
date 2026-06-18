@@ -37,7 +37,7 @@ const SHEET = {
 const HEADERS = {
   teams:      ['ID', '名前', '順序'],
   employees:  ['ID', '名前', 'チームID', '有効', '順序', '休日曜日(JSON)', 'デフォルトシフト'],
-  attendance: ['ID', 'スタッフID', 'スタッフ名', '打刻種類', '打刻', '日付', '日時'],
+  attendance: ['ID', 'スタッフID', 'スタッフ名', '打刻', '日付', '時刻'],
   requests:   ['ID', 'スタッフID', '日付', '申請種類', '理由', '時間数', 'ステータス', '申請日時'],
   shifts:     ['ID', 'スタッフID', '日付', 'シフト種類']
 }
@@ -49,6 +49,11 @@ function getSheet(key) {
     sh = SS.insertSheet(SHEET[key])
     sh.appendRow(HEADERS[key])
     sh.getRange(1, 1, 1, HEADERS[key].length).setFontWeight('bold').setBackground('#fce8ef')
+    // 打刻記録シートは「日付」「時刻」列の表示形式を見やすく設定
+    if (key === 'attendance') {
+      sh.getRange('E2:E').setNumberFormat('yyyy/m/d')  // 日付 → 2026/6/18
+      sh.getRange('F2:F').setNumberFormat('H:mm')        // 時刻 → 19:00
+    }
   }
   return sh
 }
@@ -84,6 +89,37 @@ function nowJP() {
 // 今日の日付（日本時間）
 function todayJP() {
   return Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd')
+}
+
+// セルの値を ISO日付(yyyy-MM-dd) に正規化（Date型・文字列どちらでも対応）
+function normDate(v) {
+  if (v instanceof Date) return Utilities.formatDate(v, 'Asia/Tokyo', 'yyyy-MM-dd')
+  const s = String(v || '')
+  // "2026/6/18" → "2026-06-18"
+  if (s.indexOf('/') >= 0) {
+    const p = s.split('/')
+    return `${p[0]}-${String(p[1]).padStart(2,'0')}-${String(p[2]).padStart(2,'0')}`
+  }
+  return s.slice(0, 10)
+}
+
+// セルの値を ISO日時(+09:00付き) に正規化（Date型・文字列どちらでも対応）
+function toIso(v) {
+  if (v instanceof Date) return Utilities.formatDate(v, 'Asia/Tokyo', "yyyy-MM-dd'T'HH:mm:ss'+09:00'")
+  return String(v || '')
+}
+
+// 打刻記録の1行を共通フォーマットに変換（新旧の列名どちらにも対応）
+function mapAttendanceRow(r) {
+  const rawType = r['打刻'] || r['打刻種類']   // 新:打刻 / 旧:打刻種類
+  const rawTs   = r['時刻'] || r['日時']        // 新:時刻 / 旧:日時
+  return {
+    employee_id:   String(r['スタッフID']),
+    employee_name: r['スタッフ名'] || '',
+    type:          TYPE_EN[rawType] || rawType,
+    date:          normDate(r['日付']),
+    timestamp:     toIso(rawTs)
+  }
 }
 
 // =====================================================
@@ -173,15 +209,15 @@ function handleInit(params) {
     }))
 
   // 今日の打刻（スタッフIDごとに最新の種類を取得）
-  const attRaw = sheetToObjects('attendance').filter(r => r['日付'] === today)
+  const attRaw = sheetToObjects('attendance')
+    .map(mapAttendanceRow)
+    .filter(r => r.date === today)
   const attMap = {}
   attRaw.forEach(r => {
-    const empId = String(r['スタッフID'])
+    const empId = r.employee_id
     const cur = attMap[empId]
-    const type = r['打刻種類']
-    const normalizedType = TYPE_EN[type] || type
-    if (!cur || r['日時'] > cur.timestamp) {
-      attMap[empId] = { employee_id: empId, type: normalizedType, timestamp: r['日時'] }
+    if (!cur || r.timestamp > cur.timestamp) {
+      attMap[empId] = { employee_id: empId, type: r.type, timestamp: r.timestamp }
     }
   })
 
@@ -192,18 +228,14 @@ function handleInit(params) {
 function handleGetAttendance(params) {
   const { empId, from, to } = params
   const data = sheetToObjects('attendance')
-    .filter(r => String(r['スタッフID']) === empId && r['日付'] >= from && r['日付'] <= to)
-    .map(r => {
-      // 旧データ(英語)・新データ(日本語)どちらにも対応
-      const type = r['打刻種類']
-      const normalizedType = TYPE_EN[type] || type
-      return {
-        employee_id: String(r['スタッフID']),
-        type:        normalizedType,
-        date:        r['日付'],
-        timestamp:   r['日時']
-      }
-    })
+    .map(mapAttendanceRow)
+    .filter(r => r.employee_id === empId && r.date >= from && r.date <= to)
+    .map(r => ({
+      employee_id: r.employee_id,
+      type:        r.type,
+      date:        r.date,
+      timestamp:   r.timestamp
+    }))
   return { data }
 }
 
@@ -247,20 +279,21 @@ function handleGetShifts(params) {
 // 打刻記録取得（管理画面用・スタッフ名付き）
 function handleGetAttendanceRecords(params) {
   const { from, to } = params
-  const employees = sheetToObjects('employees')
+  // スタッフ名が空の旧データ用に、IDから名前を引けるようにしておく
   const empMap = {}
-  for (const e of employees) {
+  for (const e of sheetToObjects('employees')) {
     empMap[String(e['ID'])] = e['名前']
   }
 
   const data = sheetToObjects('attendance')
-    .filter(r => r['日付'] >= from && r['日付'] <= to)
+    .map(mapAttendanceRow)
+    .filter(r => r.date >= from && r.date <= to)
     .map(r => ({
-      date: r['日付'],
-      employee_id: String(r['スタッフID']),
-      employee_name: empMap[String(r['スタッフID'])] || '(削除済み)',
-      type: r['打刻種類'],
-      timestamp: r['日時']
+      date:          r.date,
+      employee_id:   r.employee_id,
+      employee_name: r.employee_name || empMap[r.employee_id] || '(削除済み)',
+      type:          r.type,
+      timestamp:     r.timestamp
     }))
     .sort((a, b) => {
       if (a.date !== b.date) return a.date.localeCompare(b.date)
@@ -277,14 +310,22 @@ function handleGetAttendanceRecords(params) {
 // 打刻記録
 function handleRecord(data) {
   const id  = uuid()
-  const now = nowJP()
+  const now = new Date()  // 実際の日時（時刻列に入る）
   // スタッフ名を取得
-  const employees = sheetToObjects('employees')
-  const emp = employees.find(e => String(e['ID']) === String(data.employee_id))
+  const emp = sheetToObjects('employees').find(e => String(e['ID']) === String(data.employee_id))
   const empName = emp ? emp['名前'] : ''
   const typeJP = TYPE_JP[data.type] || data.type
-  appendRow('attendance', [id, data.employee_id, empName, data.type, typeJP, data.date, now])
-  return { success: true, id, timestamp: now }
+  // 日付は本物のDate値にして「2026/6/18」表示、時刻も本物のDate値にして「19:00」表示
+  const dateValue = new Date(data.date + 'T00:00:00+09:00')
+
+  const sh = getSheet('attendance')
+  sh.appendRow([id, data.employee_id, empName, typeJP, dateValue, now])
+  // 念のため、この行の表示形式を設定（既存シートでも見やすく）
+  const row = sh.getLastRow()
+  sh.getRange(row, 5).setNumberFormat('yyyy/m/d')  // 日付
+  sh.getRange(row, 6).setNumberFormat('H:mm')        // 時刻
+
+  return { success: true, id, timestamp: toIso(now) }
 }
 
 // 各種申請
