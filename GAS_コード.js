@@ -37,7 +37,7 @@ const SHEET = {
 const HEADERS = {
   teams:      ['ID', '名前', '順序'],
   employees:  ['ID', '名前', 'チームID', '有効', '順序', '休日曜日(JSON)', 'デフォルトシフト'],
-  attendance: ['ID', 'スタッフID', 'スタッフ名', '打刻', '日付', '時刻'],
+  attendance: ['日付', 'スタッフ名', '打刻', '時刻', 'スタッフID', '記録ID'],
   requests:   ['ID', 'スタッフID', '日付', '申請種類', '理由', '時間数', 'ステータス', '申請日時'],
   shifts:     ['ID', 'スタッフID', '日付', 'シフト種類']
 }
@@ -49,10 +49,11 @@ function getSheet(key) {
     sh = SS.insertSheet(SHEET[key])
     sh.appendRow(HEADERS[key])
     sh.getRange(1, 1, 1, HEADERS[key].length).setFontWeight('bold').setBackground('#fce8ef')
-    // 打刻記録シートは「日付」「時刻」列の表示形式を見やすく設定
+    // 打刻記録シートは見やすく設定
     if (key === 'attendance') {
-      sh.getRange('E2:E').setNumberFormat('yyyy/m/d')  // 日付 → 2026/6/18
-      sh.getRange('F2:F').setNumberFormat('H:mm')        // 時刻 → 19:00
+      sh.getRange('A2:A').setNumberFormat('yyyy/m/d')  // 日付 → 2026/6/18
+      sh.getRange('D2:D').setNumberFormat('H:mm')        // 時刻 → 19:00
+      sh.hideColumns(5, 2)  // E列(スタッフID)とF列(記録ID)を非表示にする
     }
   }
   return sh
@@ -319,11 +320,12 @@ function handleRecord(data) {
   const dateValue = new Date(data.date + 'T00:00:00+09:00')
 
   const sh = getSheet('attendance')
-  sh.appendRow([id, data.employee_id, empName, typeJP, dateValue, now])
+  // 列順： 日付 / スタッフ名 / 打刻 / 時刻 / スタッフID / 記録ID
+  sh.appendRow([dateValue, empName, typeJP, now, data.employee_id, id])
   // 念のため、この行の表示形式を設定（既存シートでも見やすく）
   const row = sh.getLastRow()
-  sh.getRange(row, 5).setNumberFormat('yyyy/m/d')  // 日付
-  sh.getRange(row, 6).setNumberFormat('H:mm')        // 時刻
+  sh.getRange(row, 1).setNumberFormat('yyyy/m/d')  // 日付
+  sh.getRange(row, 4).setNumberFormat('H:mm')        // 時刻
 
   return { success: true, id, timestamp: toIso(now) }
 }
