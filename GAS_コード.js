@@ -327,7 +327,22 @@ function handleRecord(data) {
   sh.getRange(row, 1).setNumberFormat('yyyy/m/d')  // 日付
   sh.getRange(row, 4).setNumberFormat('H:mm')        // 時刻
 
+  // 打った順ではなく「日付 → スタッフ名 → 時刻」の順に並べ替える
+  // （同じ日の同じ人の打刻がまとまる）
+  sortAttendance(sh)
+
   return { success: true, id, timestamp: toIso(now) }
+}
+
+// 打刻記録を 日付→スタッフ名→時刻 の順に並べ替え
+function sortAttendance(sh) {
+  const lastRow = sh.getLastRow()
+  if (lastRow <= 2) return  // ヘッダー+1行以下なら並べ替え不要
+  sh.getRange(2, 1, lastRow - 1, 6).sort([
+    { column: 1, ascending: true },  // 日付
+    { column: 2, ascending: true },  // スタッフ名
+    { column: 4, ascending: true }   // 時刻
+  ])
 }
 
 // 各種申請
