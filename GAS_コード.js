@@ -20,6 +20,10 @@ const SS = SpreadsheetApp.getActiveSpreadsheet()
 // ★ここに好きなパスワードを設定してください（HTMLと同じにすること）
 const SECRET_TOKEN = 'linochino'
 
+// 打刻種類の変換マップ
+const TYPE_JP = { clock_in:'出勤', break_start:'休憩イン', break_end:'休憩アウト', clock_out:'退勤' }
+const TYPE_EN = { '出勤':'clock_in', '休憩イン':'break_start', '休憩アウト':'break_end', '退勤':'clock_out' }
+
 // シート名の定義
 const SHEET = {
   teams:      'チーム',
@@ -33,7 +37,7 @@ const SHEET = {
 const HEADERS = {
   teams:      ['ID', '名前', '順序'],
   employees:  ['ID', '名前', 'チームID', '有効', '順序', '休日曜日(JSON)', 'デフォルトシフト'],
-  attendance: ['ID', 'スタッフID', '打刻種類', '日付', '日時'],
+  attendance: ['ID', 'スタッフID', 'スタッフ名', '打刻種類', '打刻', '日付', '日時'],
   requests:   ['ID', 'スタッフID', '日付', '申請種類', '理由', '時間数', 'ステータス', '申請日時'],
   shifts:     ['ID', 'スタッフID', '日付', 'シフト種類']
 }
@@ -174,8 +178,10 @@ function handleInit(params) {
   attRaw.forEach(r => {
     const empId = String(r['スタッフID'])
     const cur = attMap[empId]
+    const type = r['打刻種類']
+    const normalizedType = TYPE_EN[type] || type
     if (!cur || r['日時'] > cur.timestamp) {
-      attMap[empId] = { employee_id: empId, type: r['打刻種類'], timestamp: r['日時'] }
+      attMap[empId] = { employee_id: empId, type: normalizedType, timestamp: r['日時'] }
     }
   })
 
@@ -187,12 +193,17 @@ function handleGetAttendance(params) {
   const { empId, from, to } = params
   const data = sheetToObjects('attendance')
     .filter(r => String(r['スタッフID']) === empId && r['日付'] >= from && r['日付'] <= to)
-    .map(r => ({
-      employee_id: String(r['スタッフID']),
-      type:        r['打刻種類'],
-      date:        r['日付'],
-      timestamp:   r['日時']
-    }))
+    .map(r => {
+      // 旧データ(英語)・新データ(日本語)どちらにも対応
+      const type = r['打刻種類']
+      const normalizedType = TYPE_EN[type] || type
+      return {
+        employee_id: String(r['スタッフID']),
+        type:        normalizedType,
+        date:        r['日付'],
+        timestamp:   r['日時']
+      }
+    })
   return { data }
 }
 
@@ -267,7 +278,12 @@ function handleGetAttendanceRecords(params) {
 function handleRecord(data) {
   const id  = uuid()
   const now = nowJP()
-  appendRow('attendance', [id, data.employee_id, data.type, data.date, now])
+  // スタッフ名を取得
+  const employees = sheetToObjects('employees')
+  const emp = employees.find(e => String(e['ID']) === String(data.employee_id))
+  const empName = emp ? emp['名前'] : ''
+  const typeJP = TYPE_JP[data.type] || data.type
+  appendRow('attendance', [id, data.employee_id, empName, data.type, typeJP, data.date, now])
   return { success: true, id, timestamp: now }
 }
 
