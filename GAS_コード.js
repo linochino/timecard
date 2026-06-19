@@ -35,7 +35,7 @@ const HEADERS = {
   employees:  ['ID', '名前', 'チームID', '有効', '順序', '休日曜日(JSON)', 'デフォルトシフト'],
   attendance: ['日付', 'スタッフ名', '出勤', '休憩イン', '休憩アウト', '退勤', 'スタッフID'],
   requests:   ['ID', 'スタッフID', '日付', '申請種類', '理由', '時間数', 'ステータス', '申請日時'],
-  shifts:     ['日付', 'スタッフ名', 'シフト', 'スタッフID']
+  shifts:     ['ID', 'スタッフID', '日付', 'シフト種類']
 }
 
 // シートを取得（なければ作成してヘッダーを追加）
@@ -50,11 +50,6 @@ function getSheet(key) {
       sh.getRange('A2:A').setNumberFormat('yyyy/m/d')   // 日付 → 2026/6/18
       sh.getRange('C2:F').setNumberFormat('H:mm')         // 出勤〜退勤 → 9:00
       sh.hideColumns(7)  // G列(スタッフID)を非表示にする
-    }
-    // シフトシートは見やすく設定
-    if (key === 'shifts') {
-      sh.getRange('A2:A').setNumberFormat('yyyy/m/d')   // 日付 → 2026/6/18
-      sh.hideColumns(4)  // D列(スタッフID)を非表示にする
     }
   }
   return sh
@@ -285,8 +280,8 @@ function handleGetShifts(params) {
     .filter(r => r['日付'] >= from && r['日付'] <= to)
     .map(r => ({
       employee_id: String(r['スタッフID']),
-      date:        normDate(r['日付']),
-      shift_type:  r['シフト'] || r['シフト種類']  // 新:シフト / 旧:シフト種類 対応
+      date:        r['日付'],
+      shift_type:  r['シフト種類']
     }))
   return { data }
 }
