@@ -675,8 +675,7 @@ function generateScheduleSheet(month) {
   // 凡例の体裁
   sh.getRange(legendStartRow, 1, legend.length, 1).setFontSize(9)
 
-  // 見出し固定
-  sh.setFrozenColumns(3)
+  // 見出し行を固定（列の固定はタイトルの全列結合と競合するため行わない）
   sh.setFrozenRows(HEADER_ROWS)
 
   return { success: true, sheet: sheetName, month, staff: emps.length }
