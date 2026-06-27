@@ -67,7 +67,7 @@ const SHEET = {
 // 各シートのヘッダー行
 const HEADERS = {
   teams:      ['ID', '名前', '順序'],
-  employees:  ['ID', '名前', 'チームID', '有効', '順序', '休日曜日(JSON)', 'デフォルトシフト', '職種', '勤務形態'],
+  employees:  ['ID', '名前', 'チームID', '有効', '順序', '休日曜日(JSON)', 'デフォルトシフト', '職種', '勤務形態', '暗証番号'],
   attendance: ['日付', 'スタッフ名', '出勤', '休憩イン', '休憩アウト', '退勤', 'スタッフID'],
   requests:   ['ID', 'スタッフID', '日付', '申請種類', '理由', '時間数', 'ステータス', '申請日時'],
   shifts:     ['ID', 'スタッフID', '日付', 'シフト種類']
@@ -234,6 +234,7 @@ function doPost(e) {
       case 'deleteTeam':     result = handleDeleteTeam(data); break
       case 'deleteEmployee': result = handleDeleteEmployee(data); break
       case 'generateSchedule': result = generateScheduleSheet(data.month); break
+      case 'verifyPin':      result = handleVerifyPin(data); break
       default:               result = { error: '不明なアクション: ' + data.action }
     }
   } catch (err) {
@@ -255,6 +256,7 @@ function toJson(data) {
 // 初期データ（チーム・スタッフ・今日の打刻状況）
 function handleInit(params) {
   const today = params.today || todayJP()
+  ensureColumns('employees')  // 職種・勤務形態・暗証番号 列を自動で用意（なければ追加）
 
   const teams = sheetToObjects('teams').map(r => ({
     id:         String(r['ID']),
@@ -458,7 +460,8 @@ function handleAddEmployee(data) {
     JSON.stringify(data.fixed_off_days || [0, 6]),
     data.default_shift || '日勤',
     data.job_type || '',         // 職種（後でシートに入力）
-    data.employment_type || ''   // 勤務形態 A〜D（後でシートに入力）
+    data.employment_type || '',  // 勤務形態 A〜D（後でシートに入力）
+    data.pin || ''               // 暗証番号（後でシートに入力）
   ])
   return { success: true, id }
 }
@@ -475,6 +478,16 @@ function handleDeleteTeam(data) {
     }
   }
   return { success: true }
+}
+
+// 暗証番号(PIN)の照合（勤務記録・シフト閲覧の本人確認）
+// PINは画面に送らず、サーバー側でだけ照合する
+function handleVerifyPin(data) {
+  const emp = sheetToObjects('employees').find(e => String(e['ID']) === String(data.empId))
+  if (!emp) return { ok: false, error: 'スタッフが見つかりません' }
+  const pin = String(emp['暗証番号'] == null ? '' : emp['暗証番号']).trim()
+  if (!pin) return { ok: true, unset: true }   // PIN未設定なら通す（設定するまでは保護なし）
+  return { ok: String(data.pin == null ? '' : data.pin).trim() === pin }
 }
 
 // スタッフ削除（論理削除）

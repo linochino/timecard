@@ -522,6 +522,24 @@ const OK_MSG = {
 }
 
 let emps = [], teams = [], todaySt = {}, selEmp = null
+let pinOk = {}  // このセッションでPIN認証済みのスタッフID（勤務記録・シフト閲覧用）
+
+// 勤務記録・シフト表を開く前に本人のPINを確認する
+async function requirePin() {
+    if (!selEmp) return false
+    if (pinOk[selEmp.id]) return true   // 同じ人を選択中は1回でOK
+    const pin = prompt(selEmp.name + ' さんの暗証番号（PIN）を入力してください')
+    if (pin === null) return false      // キャンセル
+    try {
+        const res = await gasPost({ action: 'verifyPin', empId: selEmp.id, pin })
+        if (res.ok) { pinOk[selEmp.id] = true; return true }
+        alert('暗証番号が違います')
+        return false
+    } catch (e) {
+        alert('エラー: ' + e.message)
+        return false
+    }
+}
 
 function todayStr() { return new Date().toLocaleDateString('sv-SE') }
 
@@ -575,6 +593,7 @@ function renderList() {
 async function selEmpFn(id) {
     selEmp = emps.find(e => e.id === id)
     if (!selEmp) return
+    pinOk = {}  // 名前を選び直したらPIN認証はリセット（他人が前の認証を使えないように）
     const s = todaySt[id]
     document.getElementById('sel-name').textContent = selEmp.name
     document.getElementById('sel-st').textContent   = '現在: ' + (ST[s] || '未打刻')
@@ -742,7 +761,7 @@ function showOk(act, who, time, msg) {
 
 // ---- シフト表 ----
 let shiftViewOffset = 0
-function goShiftView() { shiftViewOffset = 0; loadShiftView(); show('v-shift') }
+async function goShiftView() { if (!await requirePin()) return; shiftViewOffset = 0; loadShiftView(); show('v-shift') }
 function changeShiftViewMonth(d) { shiftViewOffset += d; loadShiftView() }
 
 function getShiftViewMonth() {
@@ -820,8 +839,9 @@ async function loadShiftView() {
 // ---- 個人記録 ----
 let personalEmpId = null, personalEmpName = '', personalMonthOffset = 0
 
-function goMyRecord() {
+async function goMyRecord() {
     if (!selEmp) return
+    if (!await requirePin()) return
     personalEmpId = selEmp.id; personalEmpName = selEmp.name; personalMonthOffset = 0
     loadPersonalRecord(); show('v-personal')
 }
