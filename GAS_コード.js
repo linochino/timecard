@@ -67,8 +67,8 @@ const SHEET = {
 // 各シートのヘッダー行
 const HEADERS = {
   teams:      ['ID', '名前', '順序'],
-  employees:  ['ID', '名前', 'チームID', '有効', '順序', '休日曜日(JSON)', 'デフォルトシフト', '職種', '勤務形態', '暗証番号'],
-  attendance: ['日付', 'スタッフ名', '出勤', '休憩イン', '休憩アウト', '退勤', 'スタッフID'],
+  employees:  ['ID', '名前', 'チームID', '有効', '順序', '休日曜日(JSON)', 'デフォルトシフト', '職種', '勤務形態', '暗証番号', '雇用区分'],
+  attendance: ['日付', 'スタッフ名', '雇用区分', '出勤', '退勤', '実働', '残業', '休憩イン', '休憩アウト', 'スタッフID'],
   requests:   ['ID', 'スタッフID', '日付', '申請種類', '理由', '時間数', 'ステータス', '申請日時'],
   shifts:     ['ID', 'スタッフID', '日付', 'シフト種類']
 }
@@ -81,10 +81,13 @@ function getSheet(key) {
     sh.appendRow(HEADERS[key])
     sh.getRange(1, 1, 1, HEADERS[key].length).setFontWeight('bold').setBackground('#fce8ef')
     // 打刻記録シートは見やすく設定
+    // 列： 日付(A) スタッフ名(B) 雇用区分(C) 出勤(D) 退勤(E) 実働(F) 残業(G) 休憩イン(H) 休憩アウト(I) スタッフID(J)
     if (key === 'attendance') {
       sh.getRange('A2:A').setNumberFormat('yyyy/m/d')   // 日付 → 2026/6/18
-      sh.getRange('C2:F').setNumberFormat('H:mm')         // 出勤〜退勤 → 9:00
-      sh.hideColumns(7)  // G列(スタッフID)を非表示にする
+      sh.getRange('D2:E').setNumberFormat('H:mm')         // 出勤・退勤 → 9:00
+      sh.getRange('F2:G').setNumberFormat('0.00')         // 実働・残業 → 8.00（時間・小数）
+      sh.getRange('H2:I').setNumberFormat('H:mm')         // 休憩イン・アウト → 12:00
+      sh.hideColumns(8, 3)  // H〜J列（休憩イン・休憩アウト・スタッフID）を非表示
     }
   }
   return sh
@@ -374,18 +377,41 @@ function handleGetAttendanceRecords(params) {
 // =====================================================
 
 // 打刻記録（1人1日1行・横並び）
-// 列： 日付(1) / スタッフ名(2) / 出勤(3) / 休憩イン(4) / 休憩アウト(5) / 退勤(6) / スタッフID(7)
-const ATT_COL = { clock_in: 3, break_start: 4, break_end: 5, clock_out: 6 }
+// 列： 日付(1) スタッフ名(2) 雇用区分(3) 出勤(4) 退勤(5) 実働(6) 残業(7) 休憩イン(8) 休憩アウト(9) スタッフID(10)
+const ATT_COL = { clock_in: 4, clock_out: 5, break_start: 8, break_end: 9 }
+const ATT_EMPID_COL = 10
+const FIXED_BREAK = { start: 13, end: 14 }  // 休憩を押さない場合の固定昼休み（13:00〜14:00）
+const STD_WORK_MIN = 8 * 60                 // 正社の所定労働（8時間）。これを超えた分を残業に
+
+// スタッフの雇用区分（正社/パート）。明示があればそれ、なければ勤務形態A/B→正社・C/D→パート
+function empKbn(emp) {
+  if (!emp) return ''
+  const explicit = String(emp['雇用区分'] == null ? '' : emp['雇用区分']).trim()
+  if (explicit) return explicit
+  const k = String(emp['勤務形態'] == null ? '' : emp['勤務形態']).trim().toUpperCase()
+  if (k === 'A' || k === 'B') return '正社'
+  if (k === 'C' || k === 'D') return 'パート'
+  return ''
+}
+
+// 2つの時刻区間の重なり（分）。固定昼休みの控除に使う
+function overlapMinutes(ci, co, startHour, endHour) {
+  const bs = new Date(ci); bs.setHours(startHour, 0, 0, 0)
+  const be = new Date(ci); be.setHours(endHour, 0, 0, 0)
+  const s = Math.max(ci.getTime(), bs.getTime())
+  const e = Math.min(co.getTime(), be.getTime())
+  return e > s ? (e - s) / 60000 : 0
+}
 
 function handleRecord(data) {
   const now = new Date()  // 実際の打刻時刻
   const targetCol = ATT_COL[data.type]
   if (!targetCol) return { error: '不明な打刻種類: ' + data.type }
 
-  // スタッフ名を取得
   const emp = sheetToObjects('employees').find(e => String(e['ID']) === String(data.employee_id))
   const empName = emp ? emp['名前'] : ''
-  const dateValue = new Date(data.date + 'T00:00:00+09:00')  // 「2026/6/18」表示用の日付値
+  const kbn = empKbn(emp)
+  const dateValue = new Date(data.date + 'T00:00:00+09:00')  // 「2026/6/18」表示用
 
   const sh = getSheet('attendance')
 
@@ -393,26 +419,31 @@ function handleRecord(data) {
   const values = sh.getDataRange().getValues()  // ヘッダー含む
   let targetRow = -1
   for (let i = 1; i < values.length; i++) {
-    const rowDate  = normDate(values[i][0])              // A列:日付
-    const rowEmpId = String(values[i][6] || '')           // G列:スタッフID
+    const rowDate  = normDate(values[i][0])                        // A列:日付
+    const rowEmpId = String(values[i][ATT_EMPID_COL - 1] || '')     // J列:スタッフID
     if (rowDate === data.date && rowEmpId === String(data.employee_id)) {
-      targetRow = i + 1  // 1始まりの行番号
+      targetRow = i + 1
       break
     }
   }
 
   if (targetRow === -1) {
-    // その日初めての打刻 → 新しい行を作る
-    const rowData = [dateValue, empName, '', '', '', '', data.employee_id]
+    // その日初めての打刻 → 新しい行を作る（10列）
+    const rowData = [dateValue, empName, kbn, '', '', '', '', '', '', data.employee_id]
     rowData[targetCol - 1] = now
     sh.appendRow(rowData)
     targetRow = sh.getLastRow()
     sh.getRange(targetRow, 1).setNumberFormat('yyyy/m/d')   // 日付
-    sh.getRange(targetRow, 3, 1, 4).setNumberFormat('H:mm')  // 出勤〜退勤
+    sh.getRange(targetRow, 4, 1, 2).setNumberFormat('H:mm')  // 出勤・退勤
+    sh.getRange(targetRow, 6, 1, 2).setNumberFormat('0.00')  // 実働・残業
+    sh.getRange(targetRow, 8, 1, 2).setNumberFormat('H:mm')  // 休憩イン・アウト
   } else {
-    // 既存の行の該当列だけ更新
     sh.getRange(targetRow, targetCol).setValue(now).setNumberFormat('H:mm')
+    if (kbn && !values[targetRow - 1][2]) sh.getRange(targetRow, 3).setValue(kbn)  // 雇用区分が空なら補う
   }
+
+  // 実働・残業を再計算
+  recalcWork(sh, targetRow, kbn)
 
   // 日付 → スタッフ名 の順に並べ替え
   sortAttendance(sh)
@@ -420,11 +451,34 @@ function handleRecord(data) {
   return { success: true, timestamp: toIso(now) }
 }
 
+// その行の実働・残業を計算して書き込む（出勤・退勤がそろっていれば）
+function recalcWork(sh, row, kbn) {
+  const v  = sh.getRange(row, 1, 1, ATT_EMPID_COL).getValues()[0]
+  const ci = v[3], co = v[4], bs = v[7], be = v[8]  // 出勤・退勤・休憩イン・休憩アウト
+  if (!(ci instanceof Date) || !(co instanceof Date)) {
+    sh.getRange(row, 6, 1, 2).clearContent()  // まだ計算できない
+    return
+  }
+  let mins = (co.getTime() - ci.getTime()) / 60000
+  // 休憩：打刻があればその実時間、なければ固定昼休み(13-14)の重なりを控除
+  let breakMins = (bs instanceof Date && be instanceof Date)
+    ? (be.getTime() - bs.getTime()) / 60000
+    : overlapMinutes(ci, co, FIXED_BREAK.start, FIXED_BREAK.end)
+  mins = Math.max(0, mins - breakMins)
+  sh.getRange(row, 6).setValue(Math.round(mins / 60 * 100) / 100)  // 実働(時間)
+  // 残業：正社のみ。所定(8h)を超えた分。パートは空欄
+  if (kbn === '正社') {
+    sh.getRange(row, 7).setValue(Math.round(Math.max(0, mins - STD_WORK_MIN) / 60 * 100) / 100)
+  } else {
+    sh.getRange(row, 7).clearContent()
+  }
+}
+
 // 打刻記録を 日付→スタッフ名 の順に並べ替え
 function sortAttendance(sh) {
   const lastRow = sh.getLastRow()
   if (lastRow <= 2) return  // ヘッダー+1行以下なら並べ替え不要
-  sh.getRange(2, 1, lastRow - 1, 7).sort([
+  sh.getRange(2, 1, lastRow - 1, ATT_EMPID_COL).sort([
     { column: 1, ascending: true },  // 日付
     { column: 2, ascending: true }   // スタッフ名
   ])
@@ -461,7 +515,8 @@ function handleAddEmployee(data) {
     data.default_shift || '日勤',
     data.job_type || '',         // 職種（後でシートに入力）
     data.employment_type || '',  // 勤務形態 A〜D（後でシートに入力）
-    data.pin || ''               // 暗証番号（後でシートに入力）
+    data.pin || '',              // 暗証番号（後でシートに入力）
+    data.employment_kbn || ''    // 雇用区分 正社/パート（空なら勤務形態から自動判定）
   ])
   return { success: true, id }
 }
