@@ -522,6 +522,7 @@ const OK_MSG = {
 }
 
 let emps = [], teams = [], todaySt = {}, selEmp = null
+let longBreaks = []  // 長期休業の期間（正社のシフトが8:30-16:30になる）
 let pinOk = {}  // このセッションでPIN認証済みのスタッフID（勤務記録・シフト閲覧用）
 
 // 勤務記録・シフト表を開く前に本人のPINを確認する
@@ -556,6 +557,7 @@ async function init() {
         const data = await gasGet({ action: 'init', today: todayStr() })
         teams = (data.teams || []).sort((a,b) => (a.sort_order||0)-(b.sort_order||0))
         emps  = (data.employees || []).sort((a,b) => (a.sort_order||0)-(b.sort_order||0))
+        longBreaks = data.longBreaks || []  // 長期休業の期間
         todaySt = {}
         for (const r of data.attendance || []) {
             if (!todaySt[r.employee_id]) todaySt[r.employee_id] = r.type
@@ -793,8 +795,10 @@ async function loadShiftView() {
         const SHIFT_COLORS = {
             '日勤':'#ffffff','午前':'#fef9c3','午後':'#ede9fe','変則':'#d1fae5',
             '春夏':'#bfdbfe','有給':'#fce7f3','AM有休':'#fbcfe8','PM有休':'#fbcfe8',
-            '時間有給':'#fbcfe8','研修':'#bfdbfe','休':'#e0f2fe'
+            '時間有給':'#fbcfe8','研修':'#bfdbfe','休':'#e0f2fe','長期':'#fde68a'
         }
+        // 長期休業期間の判定（この期間は正社が「長期」=8:30-16:30）
+        const inLongBreak = ds => longBreaks.some(b => ds >= b.from && ds <= b.to)
 
         let hdr = '<th style="min-width:56px;position:sticky;left:0;background:#fff0f4;z-index:2;font-size:11px;padding:4px">名前</th>'
         for (const { d, dow, ds } of days) {
@@ -815,7 +819,9 @@ async function loadShiftView() {
                     const isWknd = dow===0||dow===6
                     const fixedOff = (emp.fixed_off_days||[]).includes(dow)
                     const isHoliday = HOLIDAYS.has(ds)
-                    const defaultSt = (isWknd||fixedOff||isHoliday) ? '休' : (emp.default_shift||'日勤')
+                    const defaultSt = (isWknd||fixedOff||isHoliday) ? '休'
+                        : (inLongBreak(ds) && emp.employment_kbn==='正社') ? '長期'
+                        : (emp.default_shift||'日勤')
                     const st = shiftMap[key] !== undefined ? shiftMap[key] : defaultSt
                     const isOverride = shiftMap[key] !== undefined
                     const bg = SHIFT_COLORS[st] || '#fff'
@@ -828,9 +834,17 @@ async function loadShiftView() {
             }
         }
 
+        const hasLongBreak = days.some(d => inLongBreak(d.ds))
+        const legend = hasLongBreak
+            ? `<div style="margin-top:8px;font-size:11px;color:#6b7280;padding:0 4px">
+                 <span style="display:inline-block;width:11px;height:11px;background:#fde68a;border-radius:2px;vertical-align:middle;margin-right:4px"></span>
+                 <b>長期</b> = 8:30〜16:30（長期休業中の正社の勤務時間）
+               </div>`
+            : ''
+
         document.getElementById('shift-view-tbl').innerHTML =
             `<table style="border-collapse:collapse;background:white;border-radius:12px;box-shadow:0 2px 8px rgba(255,150,170,.2)">
-            <thead><tr>${hdr}</tr></thead><tbody>${rows}</tbody></table>`
+            <thead><tr>${hdr}</tr></thead><tbody>${rows}</tbody></table>` + legend
     } catch(e) {
         document.getElementById('shift-view-tbl').innerHTML = `<div class="err">エラー: ${e.message}</div>`
     }

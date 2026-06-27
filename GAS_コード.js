@@ -37,6 +37,7 @@ const SHIFT_MAP = {
   '午後':     { code: '③', hours: 4, service: 'b'  },
   '変則':     { code: '①', hours: 8, service: 'ab' },
   '春夏':     { code: '①', hours: 8, service: 'ab' },
+  '長期':     { code: '⑤', hours: 7, service: 'ab' },  // 長期休業（8:30-16:30）
   '休':       { code: '④', hours: 0, service: 'c'  },
   '有給':     { code: '④', hours: 0, service: 'c'  },
   'AM有休':   { code: '④', hours: 0, service: 'c'  },
@@ -61,7 +62,8 @@ const SHEET = {
   employees:  'スタッフ',
   attendance: '打刻記録',
   requests:   '申請',
-  shifts:     'シフト'
+  shifts:     'シフト',
+  holidays:   '長期休業'
 }
 
 // 各シートのヘッダー行
@@ -70,7 +72,8 @@ const HEADERS = {
   employees:  ['ID', '名前', 'チームID', '有効', '順序', '休日曜日(JSON)', 'デフォルトシフト', '職種', '勤務形態', '暗証番号', '雇用区分'],
   attendance: ['日付', 'スタッフ名', '雇用区分', '出勤', '退勤', '実働', '残業', '休憩イン', '休憩アウト', 'スタッフID'],
   requests:   ['ID', 'スタッフID', '日付', '申請種類', '理由', '時間数', 'ステータス', '申請日時'],
-  shifts:     ['ID', 'スタッフID', '日付', 'シフト種類']
+  shifts:     ['ID', 'スタッフID', '日付', 'シフト種類'],
+  holidays:   ['開始日', '終了日', 'メモ']
 }
 
 // シートを取得（なければ作成してヘッダーを追加）
@@ -159,6 +162,13 @@ function normDate(v) {
 function toIso(v) {
   if (v instanceof Date) return Utilities.formatDate(v, 'Asia/Tokyo', "yyyy-MM-dd'T'HH:mm:ss'+09:00'")
   return String(v || '')
+}
+
+// 長期休業の期間リストを取得（開始日〜終了日。正社のシフトが8:30-16:30に変わる期間）
+function getLongBreaks() {
+  return sheetToObjects('holidays')
+    .map(r => ({ from: normDate(r['開始日']), to: normDate(r['終了日']) }))
+    .filter(r => r.from && r.to)
 }
 
 // 打刻記録（横並び：1人1日1行）を個別レコードの配列に展開する
@@ -278,7 +288,8 @@ function handleInit(params) {
       fixed_off_days: parseJsonSafe(r['休日曜日(JSON)'], [0, 6]),
       default_shift:  r['デフォルトシフト'] || '日勤',
       job_type:        r['職種'] || '',
-      employment_type: r['勤務形態'] || ''
+      employment_type: r['勤務形態'] || '',
+      employment_kbn:  empKbn(r)   // 正社/パート（シフト表で長期休業の判定に使う）
     }))
 
   // 今日の打刻（スタッフIDごとに最新の種類を取得）
@@ -292,7 +303,7 @@ function handleInit(params) {
     }
   })
 
-  return { teams, employees, attendance: Object.values(attMap) }
+  return { teams, employees, attendance: Object.values(attMap), longBreaks: getLongBreaks() }
 }
 
 // 打刻記録取得（月次集計用）
@@ -583,11 +594,16 @@ function generateScheduleSheet(month) {
       name:         r['名前'] || '',
       job:          r['職種'] || '',
       empType:      r['勤務形態'] || '',
+      kbn:          empKbn(r),   // 正社/パート
       fixedOff:     parseJsonSafe(r['休日曜日(JSON)'], [0, 6]),
       defaultShift: r['デフォルトシフト'] || '日勤',
       sort:         Number(r['順序']) || 0
     }))
     .sort((a, b) => a.sort - b.sort)
+
+  // 長期休業の期間（正社はこの期間 8:30-16:30 = 「長期」シフトになる）
+  const longBreaks = getLongBreaks()
+  const inLongBreak = ds => longBreaks.some(b => ds >= b.from && ds <= b.to)
 
   // 当月のシフト変更（上書き）を取得
   const from = `${month}-01`, to = `${month}-${String(N).padStart(2, '0')}`
@@ -620,7 +636,9 @@ function generateScheduleSheet(month) {
     if (st === undefined || st === null || st === '') {
       const isWknd   = day.dow === 0 || day.dow === 6
       const fixedOff = Array.isArray(emp.fixedOff) && emp.fixedOff.indexOf(day.dow) >= 0
-      st = (isWknd || fixedOff || day.holiday) ? '休' : emp.defaultShift
+      if (isWknd || fixedOff || day.holiday) st = '休'
+      else if (inLongBreak(day.ds) && emp.kbn === '正社') st = '長期'  // 長期休業中の正社
+      else st = emp.defaultShift
     }
     return SHIFT_MAP[st] || SHIFT_MAP['休']
   }
@@ -671,7 +689,7 @@ function generateScheduleSheet(month) {
   // 空行＋凡例
   rows.push(blankRow())
   const legend = [
-    '【勤務時間区分】　①9:00〜18:00　②9:00〜13:00　③14:00〜18:00　④休日',
+    '【勤務時間区分】　①9:00〜18:00　②9:00〜13:00　③14:00〜18:00　④休日　⑤8:30〜16:30（長期休業）',
     '【サービス提供時間】　a 9:20〜12:00　　b 14:00〜17:00　　c 休日',
     '【勤務形態区分】　A：常勤で専従　B：常勤で兼務　C：常勤以外で専従　D：常勤以外で兼務'
   ]
