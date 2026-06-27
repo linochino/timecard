@@ -548,7 +548,7 @@ function generateScheduleSheet(month) {
     let st = shiftMap[emp.id + '_' + day.ds]
     if (st === undefined || st === null || st === '') {
       const isWknd   = day.dow === 0 || day.dow === 6
-      const fixedOff = emp.fixedOff.indexOf(day.dow) >= 0
+      const fixedOff = Array.isArray(emp.fixedOff) && emp.fixedOff.indexOf(day.dow) >= 0
       st = (isWknd || fixedOff || day.holiday) ? '休' : emp.defaultShift
     }
     return SHIFT_MAP[st] || SHIFT_MAP['休']
@@ -611,6 +611,8 @@ function generateScheduleSheet(month) {
   const sheetName = '勤務形態一覧表'
   let sh = SS.getSheetByName(sheetName)
   if (sh) sh.clear(); else sh = SS.insertSheet(sheetName)
+  // 固定(フリーズ)を解除しておく（全列結合とフリーズが競合してエラーになるのを防ぐ）
+  sh.setFrozenRows(0); sh.setFrozenColumns(0)
   // 必要な行数・列数を確保
   if (sh.getMaxColumns() < LAST_COL)   sh.insertColumnsAfter(sh.getMaxColumns(), LAST_COL - sh.getMaxColumns())
   if (sh.getMaxRows()    < rows.length) sh.insertRowsAfter(sh.getMaxRows(), rows.length - sh.getMaxRows())
@@ -700,5 +702,10 @@ function deleteRowById(sheetKey, colName, id) {
 }
 
 function parseJsonSafe(str, fallback) {
-  try { return JSON.parse(str) } catch (e) { return fallback }
+  // 空・null は fallback（JSON.parse(null) は null を返してしまうため明示的に弾く）
+  if (str === null || str === undefined || str === '') return fallback
+  try {
+    const v = JSON.parse(str)
+    return (v === null || v === undefined) ? fallback : v
+  } catch (e) { return fallback }
 }
