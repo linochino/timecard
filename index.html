@@ -544,6 +544,18 @@ async function requirePin() {
 
 function todayStr() { return new Date().toLocaleDateString('sv-SE') }
 
+// 前回のスタッフ一覧をブラウザに保存／復元（開いた瞬間に表示して体感を速くする）
+function saveCache() {
+    try {
+        localStorage.setItem('tc_cache', JSON.stringify({
+            date: todayStr(), teams, emps, longBreaks, todaySt
+        }))
+    } catch (e) {}
+}
+function loadCache() {
+    try { return JSON.parse(localStorage.getItem('tc_cache') || 'null') } catch (e) { return null }
+}
+
 async function init() {
     document.getElementById('hd-date').textContent =
         new Date().toLocaleDateString('ja-JP', { year:'numeric', month:'long', day:'numeric', weekday:'short' })
@@ -551,8 +563,20 @@ async function init() {
     if (!GAS_URL) { show('v-setup'); return }
 
     show('v-list')
-    document.getElementById('emp-list').innerHTML = '<div class="loading">読み込み中… 🌸</div>'
 
+    // ① キャッシュがあれば即表示（GASの応答を待たずに一覧が出る）
+    const cached = loadCache()
+    if (cached && cached.emps && cached.emps.length) {
+        teams = cached.teams || []
+        emps  = cached.emps || []
+        longBreaks = cached.longBreaks || []
+        todaySt = (cached.date === todayStr()) ? (cached.todaySt || {}) : {}  // 日付が違えば打刻状況は出さない
+        renderList()
+    } else {
+        document.getElementById('emp-list').innerHTML = '<div class="loading">読み込み中… 🌸</div>'
+    }
+
+    // ② 裏で最新を取得して更新
     try {
         const data = await gasGet({ action: 'init', today: todayStr() })
         teams = (data.teams || []).sort((a,b) => (a.sort_order||0)-(b.sort_order||0))
@@ -563,10 +587,14 @@ async function init() {
             if (!todaySt[r.employee_id]) todaySt[r.employee_id] = r.type
         }
         renderList()
+        saveCache()
         scheduleMidnightReset()
     } catch (e) {
-        document.getElementById('emp-list').innerHTML =
-            `<div class="err">⚠️ 読み込みエラー: ${e.message}<br><small>GAS URLの設定を確認してください</small></div>`
+        // 取得失敗：キャッシュが出ていればそのまま使う。無ければエラー表示
+        if (!(cached && cached.emps && cached.emps.length)) {
+            document.getElementById('emp-list').innerHTML =
+                `<div class="err">⚠️ 読み込みエラー: ${e.message}<br><small>GAS URLの設定を確認してください</small></div>`
+        }
     }
 }
 
@@ -627,6 +655,7 @@ async function rec(type) {
     try {
         const res = await gasPost({ action:'record', employee_id:selEmp.id, type, date:todayStr() })
         todaySt[selEmp.id] = type
+        saveCache()  // 打刻状況をキャッシュにも反映（次に開いたとき即正しく表示）
         const timestamp = res.timestamp || new Date().toISOString()
         const timeStr = new Date(timestamp).toLocaleTimeString('ja-JP', { hour:'2-digit', minute:'2-digit' })
         const TID = { clock_in:'t-ci', break_start:'t-bs', break_end:'t-be', clock_out:'t-co' }

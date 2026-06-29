@@ -171,6 +171,43 @@ function getLongBreaks() {
     .filter(r => r.from && r.to)
 }
 
+// 今日の打刻状況だけを軽く取得する（初期表示用）
+// シート全体ではなく、日付列で今日の行範囲を絞ってから読むので、データが増えても速い
+// 返り値: [{ employee_id, type }]  type=その人の最新の打刻種類
+function getTodayStatusList(today) {
+  const sh = getSheet('attendance')
+  const lastRow = sh.getLastRow()
+  if (lastRow < 2) return []
+  // まずA列(日付)だけ読む（1列なので軽い）。日付→名前でソート済みなので今日は下の方に固まる
+  const dateCol = sh.getRange(2, 1, lastRow - 1, 1).getValues()
+  let start = -1
+  for (let i = 0; i < dateCol.length; i++) {
+    if (normDate(dateCol[i][0]) === today) { start = i; break }
+  }
+  if (start === -1) return []
+  // 今日の行ブロックだけ全列読む
+  const block = sh.getRange(2 + start, 1, dateCol.length - start, ATT_EMPID_COL).getValues()
+  const out = []
+  for (const row of block) {
+    if (normDate(row[0]) !== today) continue
+    const empId = String(row[ATT_EMPID_COL - 1] || '')
+    if (!empId) continue
+    // 出勤(D=3) 退勤(E=4) 休憩イン(H=7) 休憩アウト(I=8) のうち最も遅い打刻が現在の状態
+    const punches = [
+      { type: 'clock_in',    t: row[3] },
+      { type: 'clock_out',   t: row[4] },
+      { type: 'break_start', t: row[7] },
+      { type: 'break_end',   t: row[8] }
+    ]
+    let latest = null
+    for (const p of punches) {
+      if (p.t instanceof Date && (!latest || p.t.getTime() > latest.t.getTime())) latest = p
+    }
+    if (latest) out.push({ employee_id: empId, type: latest.type })
+  }
+  return out
+}
+
 // 打刻記録（横並び：1人1日1行）を個別レコードの配列に展開する
 // 列： 日付 / スタッフ名 / 出勤 / 休憩イン / 休憩アウト / 退勤 / スタッフID
 // 例： 1行 → 出勤・休憩イン・休憩アウト・退勤 の最大4レコードに分解
@@ -292,18 +329,8 @@ function handleInit(params) {
       employment_kbn:  empKbn(r)   // 正社/パート（シフト表で長期休業の判定に使う）
     }))
 
-  // 今日の打刻（スタッフIDごとに最新の種類を取得）
-  const attRaw = getAttendanceRecords().filter(r => r.date === today)
-  const attMap = {}
-  attRaw.forEach(r => {
-    const empId = r.employee_id
-    const cur = attMap[empId]
-    if (!cur || r.timestamp > cur.timestamp) {
-      attMap[empId] = { employee_id: empId, type: r.type, timestamp: r.timestamp }
-    }
-  })
-
-  return { teams, employees, attendance: Object.values(attMap), longBreaks: getLongBreaks() }
+  // 今日の打刻状況（今日の行だけ軽く読む）
+  return { teams, employees, attendance: getTodayStatusList(today), longBreaks: getLongBreaks() }
 }
 
 // 打刻記録取得（月次集計用）
