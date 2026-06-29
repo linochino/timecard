@@ -284,7 +284,6 @@ function doPost(e) {
       case 'deleteTeam':     result = handleDeleteTeam(data); break
       case 'deleteEmployee': result = handleDeleteEmployee(data); break
       case 'generateSchedule': result = generateScheduleSheet(data.month); break
-      case 'verifyPin':      result = handleVerifyPin(data); break
       default:               result = { error: '不明なアクション: ' + data.action }
     }
   } catch (err) {
@@ -571,19 +570,6 @@ function handleDeleteTeam(data) {
     }
   }
   return { success: true }
-}
-
-// ★とりあえずの共通PIN（個別の暗証番号が未設定のスタッフはこれで開く。あとで各自設定推奨）
-const DEFAULT_PIN = '0000'
-
-// 暗証番号(PIN)の照合（勤務記録・シフト閲覧の本人確認）
-// PINは画面に送らず、サーバー側でだけ照合する
-function handleVerifyPin(data) {
-  const emp = sheetToObjects('employees').find(e => String(e['ID']) === String(data.empId))
-  if (!emp) return { ok: false, error: 'スタッフが見つかりません' }
-  // 個別PINがあればそれ、なければ共通の DEFAULT_PIN を使う（未設定でも保護が効く）
-  const pin = String(emp['暗証番号'] == null ? '' : emp['暗証番号']).trim() || DEFAULT_PIN
-  return { ok: String(data.pin == null ? '' : data.pin).trim() === pin }
 }
 
 // スタッフ削除（論理削除）
