@@ -453,7 +453,12 @@
 // Google Apps Script API通信
 // =====================================================
 
-let GAS_URL = localStorage.getItem('tc_gas_url') || ''
+// ★★ ここにGASのウェブアプリURLを貼ると、スタッフはURL入力なしで即打刻できます（1回だけ設定）★★
+// 例: 'https://script.google.com/macros/s/AKfy............/exec'
+// ※「デプロイを管理」→既存を編集→「新しいバージョン」で再デプロイすればURLは変わりません
+const GAS_URL_FIXED = 'https://script.google.com/macros/s/AKfycbyBSgfyStutZGkwQVP3duAtS0T4ptF9N6BFTgY3lF_Jaa6CnOh6snetqvKGivZ0H3OWnw/exec'
+
+let GAS_URL = GAS_URL_FIXED || localStorage.getItem('tc_gas_url') || ''
 
 // ★GAS_コード.js の SECRET_TOKEN と同じパスワードを入れてください
 const TOKEN = 'linochino'
