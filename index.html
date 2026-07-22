@@ -621,39 +621,48 @@ async function selEmpFn(id) {
     const TID = { clock_in:'t-ci', break_start:'t-bs', break_end:'t-be', clock_out:'t-co' }
     Object.values(TID).forEach(tid => { document.getElementById(tid).textContent = '' })
 
+    show('v-act')   // 先に画面を開く（GASの返事は待たない＝待ち時間ゼロ）
+
+    // すでに打刻済みの時刻は裏で読み込んで表示（表示は任意なので待たせない）
     try {
         const today = todayStr()
         const res = await gasGet({ action:'attendance', empId:id, from:today, to:today })
-        const recs = (res.data || []).sort((a,b) => new Date(a.timestamp)-new Date(b.timestamp))
-        for (const r of recs) {
-            const tid = TID[r.type]
-            if (tid) document.getElementById(tid).textContent =
-                new Date(r.timestamp).toLocaleTimeString('ja-JP', { hour:'2-digit', minute:'2-digit' })
+        if (selEmp && selEmp.id === id) {   // 別の人に切り替わっていなければ反映
+            const recs = (res.data || []).sort((a,b) => new Date(a.timestamp)-new Date(b.timestamp))
+            for (const r of recs) {
+                const tid = TID[r.type]
+                if (tid) document.getElementById(tid).textContent =
+                    new Date(r.timestamp).toLocaleTimeString('ja-JP', { hour:'2-digit', minute:'2-digit' })
+            }
         }
     } catch(e) { /* 時刻表示は任意 */ }
-
-    show('v-act')
 }
 
 async function rec(type) {
-    const allBtns = ['b-ci','b-bs','b-be','b-co']
-    allBtns.forEach(id => { document.getElementById(id).disabled = true })
+    const emp = selEmp
+    if (!emp) return
+
+    // 楽観的更新：GASの返事を待たず、すぐ完了画面を出す（体感ゼロ待ち）
+    const now = new Date()
+    const timeStr = now.toLocaleTimeString('ja-JP', { hour:'2-digit', minute:'2-digit' })
+    const prevSt = todaySt[emp.id]           // 保存失敗時に元へ戻す用
+    todaySt[emp.id] = type
+    saveCache()
+    const TID = { clock_in:'t-ci', break_start:'t-bs', break_end:'t-be', clock_out:'t-co' }
+    if (TID[type]) document.getElementById(TID[type]).textContent = timeStr
+    document.getElementById('ok-act').textContent  = AL[type] + 'しました'
+    document.getElementById('ok-who').textContent  = emp.name
+    document.getElementById('ok-time').textContent = timeStr
+    document.getElementById('ok-msg').textContent  = OK_MSG[type] || '今日もありがとう 💕'
+    show('v-ok')
+
+    // 保存は裏で実行。失敗したら取り消して知らせる（同じ打刻は上書きなので二重にはならない）
     try {
-        const res = await gasPost({ action:'record', employee_id:selEmp.id, type, date:todayStr() })
-        todaySt[selEmp.id] = type
-        saveCache()  // 打刻状況をキャッシュにも反映（次に開いたとき即正しく表示）
-        const timestamp = res.timestamp || new Date().toISOString()
-        const timeStr = new Date(timestamp).toLocaleTimeString('ja-JP', { hour:'2-digit', minute:'2-digit' })
-        const TID = { clock_in:'t-ci', break_start:'t-bs', break_end:'t-be', clock_out:'t-co' }
-        if (TID[type]) document.getElementById(TID[type]).textContent = timeStr
-        document.getElementById('ok-act').textContent  = AL[type] + 'しました'
-        document.getElementById('ok-who').textContent  = selEmp.name
-        document.getElementById('ok-time').textContent = timeStr
-        document.getElementById('ok-msg').textContent  = OK_MSG[type] || '今日もありがとう 💕'
-        show('v-ok')
+        await gasPost({ action:'record', employee_id:emp.id, type, date:todayStr() })
     } catch(e) {
-        alert('エラー: ' + e.message)
-        selEmpFn(selEmp.id)
+        todaySt[emp.id] = prevSt
+        saveCache()
+        alert('⚠️ 保存できませんでした。通信を確認して、もう一度打刻してください。\n(' + e.message + ')')
     }
 }
 
