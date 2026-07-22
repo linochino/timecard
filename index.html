@@ -402,6 +402,10 @@
             <div class="sel-name" style="font-size:20px">スタッフ管理</div>
         </div>
         <div class="admin-card">
+            <h3>📋 申請の承認</h3>
+            <div id="approval-list"><div style="font-size:13px;color:#9ca3af">読み込み中…</div></div>
+        </div>
+        <div class="admin-card">
             <h3>🌸 チームを追加</h3>
             <input class="admin-input" id="new-team-name" placeholder="チーム名">
             <button class="admin-btn" onclick="addTeam()">追加する</button>
@@ -1202,7 +1206,53 @@ async function showAdmin() {
     const sm = document.getElementById('schedule-month')
     if (sm && !sm.value) sm.value = new Date().toLocaleDateString('sv-SE').slice(0, 7)
     show('v-admin')
+    loadPendingApprovals()
     await renderAdminEmpList()
+}
+
+// 承認待ちの申請一覧を表示（アプリ内で承認・却下できる）
+const escHtml = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))
+
+async function loadPendingApprovals() {
+    const box = document.getElementById('approval-list')
+    box.innerHTML = '<div style="font-size:13px;color:#9ca3af">読み込み中…</div>'
+    try {
+        const res = await gasGet({ action:'pendingRequests' })
+        const list = res.data || []
+        if (!list.length) {
+            box.innerHTML = '<div style="font-size:13px;color:#9ca3af">承認待ちの申請はありません 🌸</div>'
+            return
+        }
+        let h = ''
+        for (const r of list) {
+            h += `<div style="border:1px solid #fde68a;background:#fffbeb;border-radius:10px;padding:10px 12px;margin-bottom:8px">
+                <div style="font-size:14px;font-weight:700;color:#374151">${escHtml(r.name)}　<span style="font-weight:500;color:#9ca3af">${escHtml(r.date)}</span></div>
+                <div style="font-size:13px;color:#374151;margin:3px 0 8px">${escHtml(r.type)}${r.summary ? '：' + escHtml(r.summary) : ''}</div>
+                <div style="display:flex;gap:8px">
+                    <button onclick="approveRequest('${r.id}')" style="flex:1;background:#16a34a;color:#fff;border:none;border-radius:8px;padding:9px;font-size:13px;font-weight:700;cursor:pointer">✅ 承認</button>
+                    <button onclick="rejectRequest('${r.id}')" style="flex:1;background:#fff;color:#dc2626;border:1px solid #fca5a5;border-radius:8px;padding:9px;font-size:13px;font-weight:700;cursor:pointer">却下</button>
+                </div>
+            </div>`
+        }
+        box.innerHTML = h
+    } catch(e) {
+        box.innerHTML = `<div class="err" style="font-size:13px">エラー: ${e.message}</div>`
+    }
+}
+
+async function approveRequest(id) {
+    try {
+        await gasPost({ action:'setRequestStatus', id, status:'承認済み' })
+        loadPendingApprovals()
+    } catch(e) { alert('エラー: ' + e.message) }
+}
+
+async function rejectRequest(id) {
+    if (!confirm('この申請を却下しますか？')) return
+    try {
+        await gasPost({ action:'setRequestStatus', id, status:'却下' })
+        loadPendingApprovals()
+    } catch(e) { alert('エラー: ' + e.message) }
 }
 
 // 出勤表（勤務形態一覧表）をスプレッドシートに生成

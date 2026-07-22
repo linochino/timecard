@@ -97,7 +97,7 @@ function getSheet(key) {
     if (key === 'requests') {
       sh.hideColumns(8, 3)  // H〜J列（詳細データ・スタッフID・ID）を非表示
       const rule = SpreadsheetApp.newDataValidation()
-        .requireValueInList(['承認待ち', '承認済み'], true).build()
+        .requireValueInList(['承認待ち', '承認済み', '却下'], true).build()
       sh.getRange('F2:F1000').setDataValidation(rule)  // ステータスをプルダウンに
       sh.setColumnWidth(1, 130)  // 申請日時
       sh.setColumnWidth(5, 220)  // 内容
@@ -262,6 +262,7 @@ function doGet(e) {
       case 'attendance': result = handleGetAttendance(e.parameter); break
       case 'requests':   result = handleGetRequests(e.parameter); break
       case 'shifts':     result = handleGetShifts(e.parameter); break
+      case 'pendingRequests': result = handleGetPendingRequests(); break
       case 'attendance-records': result = handleGetAttendanceRecords(e.parameter); break
       default:           result = { error: '不明なアクション: ' + action }
     }
@@ -290,6 +291,7 @@ function doPost(e) {
       case 'record':         result = handleRecord(data); break
       case 'request':        result = handleRequest(data); break
       case 'applyFix':       result = handleApplyFix(data); break
+      case 'setRequestStatus': result = handleSetRequestStatus(data); break
       case 'addTeam':        result = handleAddTeam(data); break
       case 'addEmployee':    result = handleAddEmployee(data); break
       case 'deleteTeam':     result = handleDeleteTeam(data); break
@@ -379,6 +381,38 @@ function handleGetRequests(params) {
       status:          r['ステータス']
     }))
   return { data }
+}
+
+// 承認待ちの申請一覧（アプリの承認画面用）
+function handleGetPendingRequests() {
+  const data = sheetToObjects('requests')
+    .filter(r => r['ステータス'] === '承認待ち')
+    .map(r => ({
+      id:      String(r['ID']),
+      name:    r['名前'],
+      date:    r['日付'],
+      type:    r['種類'],
+      summary: r['内容']
+    }))
+    .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0))
+  return { data }
+}
+
+// 申請のステータスを変更（承認済み／却下など）。IDで行を特定
+function handleSetRequestStatus(data) {
+  const sh      = getSheet('requests')
+  const values  = sh.getDataRange().getValues()
+  const headers = values[0]
+  const idCol   = headers.indexOf('ID')
+  const stCol   = headers.indexOf('ステータス')
+  if (idCol < 0 || stCol < 0) return { error: '申請シートの形式が不正です' }
+  for (let i = 1; i < values.length; i++) {
+    if (String(values[i][idCol]) === String(data.id)) {
+      sh.getRange(i + 1, stCol + 1).setValue(data.status || '承認済み')
+      return { success: true }
+    }
+  }
+  return { error: '申請が見つかりません' }
 }
 
 // シフトデータ取得
