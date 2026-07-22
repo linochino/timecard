@@ -71,7 +71,7 @@ const HEADERS = {
   teams:      ['ID', '名前', '順序'],
   employees:  ['ID', '名前', 'チームID', '有効', '順序', '休日曜日(JSON)', 'デフォルトシフト', '職種', '勤務形態', '暗証番号', '雇用区分'],
   attendance: ['日付', 'スタッフ名', '雇用区分', '出勤', '退勤', '実働', '残業', '休憩イン', '休憩アウト', 'スタッフID'],
-  requests:   ['ID', 'スタッフID', '日付', '申請種類', '理由', '時間数', 'ステータス', '申請日時'],
+  requests:   ['申請日時', '名前', '日付', '種類', '内容', 'ステータス', '時間数', '詳細データ', 'スタッフID', 'ID'],
   shifts:     ['ID', 'スタッフID', '日付', 'シフト種類'],
   holidays:   ['開始日', '終了日', 'メモ']
 }
@@ -91,6 +91,16 @@ function getSheet(key) {
       sh.getRange('F2:G').setNumberFormat('0.00')         // 実働・残業 → 8.00（時間・小数）
       sh.getRange('H2:I').setNumberFormat('H:mm')         // 休憩イン・アウト → 12:00
       sh.hideColumns(8, 3)  // H〜J列（休憩イン・休憩アウト・スタッフID）を非表示
+    }
+    // 申請シートは読みやすく：技術的な列を隠し、ステータスはプルダウンに
+    // 列： 申請日時(A) 名前(B) 日付(C) 種類(D) 内容(E) ステータス(F) 時間数(G) 詳細データ(H) スタッフID(I) ID(J)
+    if (key === 'requests') {
+      sh.hideColumns(8, 3)  // H〜J列（詳細データ・スタッフID・ID）を非表示
+      const rule = SpreadsheetApp.newDataValidation()
+        .requireValueInList(['承認待ち', '承認済み'], true).build()
+      sh.getRange('F2:F1000').setDataValidation(rule)  // ステータスをプルダウンに
+      sh.setColumnWidth(1, 130)  // 申請日時
+      sh.setColumnWidth(5, 220)  // 内容
     }
   }
   return sh
@@ -355,16 +365,16 @@ function handleGetRequests(params) {
     .filter(r => {
       if (String(r['スタッフID']) !== empId) return false
       if (r['日付'] < from || r['日付'] > to) return false
-      // status指定がない場合は、approvedとpendingの両方を返す
       if (status && r['ステータス'] !== status) return false
-      if (!types.includes(r['申請種類'])) return false
+      if (!types.includes(r['種類'])) return false
       return true
     })
     .map(r => ({
       employee_id:     String(r['スタッフID']),
       date:            r['日付'],
-      requested_type:  r['申請種類'],
-      reason:          r['理由'],
+      requested_type:  r['種類'],
+      reason:          r['詳細データ'],   // 生データ（中抜け・自車のJSON解析用）
+      summary:         r['内容'],         // 人が読める要約
       requested_hours: Number(r['時間数']) || 0,
       status:          r['ステータス']
     }))
@@ -522,16 +532,42 @@ function sortAttendance(sh) {
   ])
 }
 
+// 理由（プレーン文字列 or JSON）を、人が読める「内容」に要約する
+function summarizeRequest(type, reason, hours) {
+  let obj = null
+  try { obj = JSON.parse(reason) } catch (e) {}
+  if (type === '自車使用' && obj) {
+    return [obj.purpose, (obj.distance ? obj.distance + 'km' : ''), obj.comment].filter(String).join(' ')
+  }
+  if (type === '中抜け' && obj) {
+    const range = (obj.break_start || '') + '〜' + (obj.break_end || '')
+    return [range, obj.comment].filter(String).join(' / ')
+  }
+  if (type === '時間有給') {
+    return (hours ? hours + '時間' : '') + (reason ? ' ' + reason : '')
+  }
+  if (obj && obj.comment) return obj.comment
+  return reason || ''
+}
+
+// 申請シートの1行を組み立てる（読みやすい列順・日本語ステータス・名前つき）
+// 列： 申請日時 名前 日付 種類 内容 ステータス 時間数 詳細データ スタッフID ID
+function buildRequestRow(empId, date, type, rawReason, hours, statusInput) {
+  const emp    = sheetToObjects('employees').find(e => String(e['ID']) === String(empId))
+  const name   = emp ? emp['名前'] : ''
+  const naiyou = summarizeRequest(type, rawReason || '', hours || 0)
+  const status = (statusInput === 'approved' || statusInput === '承認済み') ? '承認済み' : '承認待ち'
+  const applied = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy/MM/dd HH:mm')
+  return [applied, name, date, type, naiyou, status, hours || 0, rawReason || '', String(empId), uuid()]
+}
+
 // 各種申請
 function handleRequest(data) {
-  const id  = uuid()
-  const now = nowJP()
-  appendRow('requests', [
-    id, data.employee_id, data.date,
-    data.requested_type, data.reason || '', data.requested_hours || 0,
-    data.status || 'pending', now
-  ])
-  return { success: true, id }
+  appendRow('requests', buildRequestRow(
+    data.employee_id, data.date, data.requested_type,
+    data.reason || '', data.requested_hours || 0, data.status || 'pending'
+  ))
+  return { success: true }
 }
 
 // 日付文字列 + "HH:mm" → Date（打刻記録に入れる時刻セル用）
@@ -583,7 +619,7 @@ function handleApplyFix(data) {
   sortAttendance(sh)
 
   // 監査用に申請ログを残す（理由つき・反映済み）
-  appendRow('requests', [uuid(), empId, date, '打刻補正', data.reason || '', 0, 'approved', nowJP()])
+  appendRow('requests', buildRequestRow(empId, date, '打刻補正', data.reason || '', 0, 'approved'))
 
   return { success: true }
 }

@@ -980,12 +980,12 @@ async function loadPersonalRecord() {
         for (const r of reqData) {
             if (r.requested_type === '打刻補正') continue  // 打刻記録に反映済み＝時刻がそのまま表示される
             if (r.requested_type === '中抜け') {
-                if (r.status === 'approved') nakByDate[r.date] = r
-                else if (r.status === 'pending') pendingByDate[r.date] = (pendingByDate[r.date]||[]).concat([r])
+                if (r.status === '承認済み') nakByDate[r.date] = r
+                else if (r.status === '承認待ち') pendingByDate[r.date] = (pendingByDate[r.date]||[]).concat([r])
             }
             else if (r.requested_type === '自車使用') carRecords.push(r)
-            else if (r.status === 'approved') leaveByDate[r.date] = r
-            else if (r.status === 'pending') pendingByDate[r.date] = (pendingByDate[r.date]||[]).concat([r])
+            else if (r.status === '承認済み') leaveByDate[r.date] = r
+            else if (r.status === '承認待ち') pendingByDate[r.date] = (pendingByDate[r.date]||[]).concat([r])
         }
 
         const fmt = t => new Date(t).toLocaleTimeString('ja-JP', {hour:'2-digit',minute:'2-digit'})
@@ -1111,8 +1111,8 @@ function showPendingRequests(date, requests) {
         msg += `【申請${i+1}】\n`
         msg += `種類: ${req.requested_type}\n`
         if (req.requested_hours > 0) msg += `時間: ${req.requested_hours}時間\n`
-        if (req.reason) msg += `理由: ${req.reason}\n`
-        msg += `ステータス: ${req.status === 'approved' ? '✅ 承認済み' : '⏳ 承認待ち'}\n\n`
+        if (req.summary) msg += `内容: ${req.summary}\n`
+        msg += `ステータス: ${req.status === '承認済み' ? '✅ 承認済み' : '⏳ 承認待ち'}\n\n`
     }
     msg += '（スプレッドシートで承認・却下してください）'
     alert(msg)
