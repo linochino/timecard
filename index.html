@@ -730,10 +730,18 @@ async function submitFix() {
     if (bs) times.break_start = bs
     if (be) times.break_end   = be
     if (co) times.clock_out   = co
+    // 監査ログ用に、補正内容を読みやすい文字列に
+    const parts = []
+    if (ci) parts.push('出勤' + ci)
+    if (bs) parts.push('休憩イン' + bs)
+    if (be) parts.push('休憩アウト' + be)
+    if (co) parts.push('退勤' + co)
+    const logReason = parts.join(' ') + (reason ? ' / ' + reason : '')
     try {
-        await gasPost({ action:'request', employee_id:selEmp.id, date, requested_type:'打刻補正',
-            reason:JSON.stringify({times, comment:reason}), requested_hours:0, status:'pending' })
-        showOk('打刻補正を申請しました', selEmp.name + '　' + date, '申請完了 ✓', '確認後に反映されます 🌸')
+        await gasPost({ action:'applyFix', employee_id:selEmp.id, date, times, reason:logReason })
+        todaySt[selEmp.id] = times.clock_out ? 'clock_out' : (times.clock_in ? 'clock_in' : todaySt[selEmp.id])
+        saveCache()
+        showOk('打刻を補正しました', selEmp.name + '　' + date, '反映完了 ✓', '勤務記録に反映されました 🌸')
     } catch(e) { alert('エラー: ' + e.message) }
 }
 
@@ -970,6 +978,7 @@ async function loadPersonalRecord() {
         }
         const leaveByDate = {}, nakByDate = {}, carRecords = [], pendingByDate = {}
         for (const r of reqData) {
+            if (r.requested_type === '打刻補正') continue  // 打刻記録に反映済み＝時刻がそのまま表示される
             if (r.requested_type === '中抜け') {
                 if (r.status === 'approved') nakByDate[r.date] = r
                 else if (r.status === 'pending') pendingByDate[r.date] = (pendingByDate[r.date]||[]).concat([r])

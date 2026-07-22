@@ -279,6 +279,7 @@ function doPost(e) {
     switch (data.action) {
       case 'record':         result = handleRecord(data); break
       case 'request':        result = handleRequest(data); break
+      case 'applyFix':       result = handleApplyFix(data); break
       case 'addTeam':        result = handleAddTeam(data); break
       case 'addEmployee':    result = handleAddEmployee(data); break
       case 'deleteTeam':     result = handleDeleteTeam(data); break
@@ -531,6 +532,60 @@ function handleRequest(data) {
     data.status || 'pending', now
   ])
   return { success: true, id }
+}
+
+// 日付文字列 + "HH:mm" → Date（打刻記録に入れる時刻セル用）
+function timeOnDate(dateStr, hhmm) {
+  const [y, m, d] = String(dateStr).split('-').map(Number)
+  const [H, M]    = String(hhmm).split(':').map(Number)
+  return new Date(y, m - 1, d, H, M, 0)
+}
+
+// 打刻補正を「打刻記録」シートに反映する（勤務記録にも出るようになる）
+// data: { employee_id, date, times:{clock_in,break_start,break_end,clock_out}, reason }
+function handleApplyFix(data) {
+  const empId   = String(data.employee_id)
+  const date    = data.date
+  const times   = data.times || {}
+  const emp     = sheetToObjects('employees').find(e => String(e['ID']) === empId)
+  const empName = emp ? emp['名前'] : ''
+  const kbn     = empKbn(emp)
+  const sh      = getSheet('attendance')
+
+  // その日・その人の行を探す（なければ作る）
+  const values = sh.getDataRange().getValues()
+  let targetRow = -1
+  for (let i = 1; i < values.length; i++) {
+    if (normDate(values[i][0]) === date && String(values[i][ATT_EMPID_COL - 1] || '') === empId) {
+      targetRow = i + 1
+      break
+    }
+  }
+  if (targetRow === -1) {
+    const dateValue = new Date(date + 'T00:00:00+09:00')
+    sh.appendRow([dateValue, empName, kbn, '', '', '', '', '', '', empId])
+    targetRow = sh.getLastRow()
+    sh.getRange(targetRow, 1).setNumberFormat('yyyy/m/d')
+    sh.getRange(targetRow, 4, 1, 2).setNumberFormat('H:mm')
+    sh.getRange(targetRow, 6, 1, 2).setNumberFormat('0.00')
+    sh.getRange(targetRow, 8, 1, 2).setNumberFormat('H:mm')
+  } else if (kbn && !values[targetRow - 1][2]) {
+    sh.getRange(targetRow, 3).setValue(kbn)
+  }
+
+  // 補正時刻を該当列にセット（出勤4 退勤5 休憩イン8 休憩アウト9）
+  const COL = { clock_in: 4, clock_out: 5, break_start: 8, break_end: 9 }
+  for (const k in COL) {
+    if (times[k]) sh.getRange(targetRow, COL[k]).setValue(timeOnDate(date, times[k])).setNumberFormat('H:mm')
+  }
+
+  recalcWork(sh, targetRow, kbn)   // 実働・残業を計算し直す
+  sortAttendance(sh)
+
+  // 監査用に申請ログを残す（理由つき・反映済み）
+  appendRow('requests', [uuid(), empId, date, '打刻補正', data.reason || '', 0, 'approved', nowJP()])
+
+  return { success: true }
 }
 
 // チーム追加
