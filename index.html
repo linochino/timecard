@@ -741,12 +741,19 @@ async function submitFix() {
     if (be) parts.push('休憩アウト' + be)
     if (co) parts.push('退勤' + co)
     const logReason = parts.join(' ') + (reason ? ' / ' + reason : '')
+
+    // 楽観的更新：GASの返事を待たず、すぐ完了画面を出す（体感ゼロ待ち）
+    const emp = selEmp
+    todaySt[emp.id] = times.clock_out ? 'clock_out' : (times.clock_in ? 'clock_in' : todaySt[emp.id])
+    saveCache()
+    showOk('打刻を補正しました', emp.name + '　' + date, '反映完了 ✓', '勤務記録に反映されました 🌸')
+
+    // 保存は裏で実行。失敗したら知らせる（同じ日の補正は上書きなので二重にはならない）
     try {
-        await gasPost({ action:'applyFix', employee_id:selEmp.id, date, times, reason:logReason })
-        todaySt[selEmp.id] = times.clock_out ? 'clock_out' : (times.clock_in ? 'clock_in' : todaySt[selEmp.id])
-        saveCache()
-        showOk('打刻を補正しました', selEmp.name + '　' + date, '反映完了 ✓', '勤務記録に反映されました 🌸')
-    } catch(e) { alert('エラー: ' + e.message) }
+        await gasPost({ action:'applyFix', employee_id:emp.id, date, times, reason:logReason })
+    } catch(e) {
+        alert('⚠️ 補正の保存に失敗しました。通信を確認して、もう一度申請してください。\n(' + e.message + ')')
+    }
 }
 
 function goCar() {
