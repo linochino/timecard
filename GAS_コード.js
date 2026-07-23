@@ -92,18 +92,36 @@ function getSheet(key) {
       sh.getRange('H2:I').setNumberFormat('H:mm')         // 休憩イン・アウト → 12:00
       sh.hideColumns(8, 3)  // H〜J列（休憩イン・休憩アウト・スタッフID）を非表示
     }
-    // 申請シートは読みやすく：技術的な列を隠し、ステータスはプルダウンに
-    // 列： 申請日時(A) 名前(B) 日付(C) 種類(D) 内容(E) ステータス(F) 時間数(G) 詳細データ(H) スタッフID(I) ID(J)
-    if (key === 'requests') {
-      sh.hideColumns(8, 3)  // H〜J列（詳細データ・スタッフID・ID）を非表示
-      const rule = SpreadsheetApp.newDataValidation()
-        .requireValueInList(['承認待ち', '承認済み', '却下'], true).build()
-      sh.getRange('F2:F1000').setDataValidation(rule)  // ステータスをプルダウンに
-      sh.setColumnWidth(1, 130)  // 申請日時
-      sh.setColumnWidth(5, 220)  // 内容
-    }
+    if (key === 'requests') formatRequestsSheet(sh)
   }
+  // 既存の「申請」シートが古い列構成なら、新形式に自動で直す（手作業でのシート作り直し不要）
+  if (key === 'requests') migrateRequestsSheet(sh)
   return sh
+}
+
+// 申請シートの見た目を整える（技術的な列を隠し、ステータスをプルダウンに）
+// 列： 申請日時(A) 名前(B) 日付(C) 種類(D) 内容(E) ステータス(F) 時間数(G) 詳細データ(H) スタッフID(I) ID(J)
+function formatRequestsSheet(sh) {
+  sh.hideColumns(8, 3)  // H〜J列（詳細データ・スタッフID・ID）を非表示
+  const rule = SpreadsheetApp.newDataValidation()
+    .requireValueInList(['承認待ち', '承認済み', '却下'], true).build()
+  sh.getRange('F2:F1000').setDataValidation(rule)  // ステータスをプルダウン
+  sh.setColumnWidth(1, 130)  // 申請日時
+  sh.setColumnWidth(5, 220)  // 内容
+}
+
+// 申請シートのヘッダーが新形式でなければ、ヘッダー行を新形式に書き換える
+// （古い行のデータは列名とずれるが害はなく、新しい申請は正しく記録・表示される）
+function migrateRequestsSheet(sh) {
+  const want    = HEADERS.requests
+  const lastCol = sh.getLastColumn()
+  const have    = lastCol > 0 ? sh.getRange(1, 1, 1, lastCol).getValues()[0] : []
+  if (want.every((h, i) => have[i] === h)) return  // すでに新形式
+  if (sh.getMaxColumns() < want.length) {
+    sh.insertColumnsAfter(sh.getMaxColumns(), want.length - sh.getMaxColumns())
+  }
+  sh.getRange(1, 1, 1, want.length).setValues([want]).setFontWeight('bold').setBackground('#fce8ef')
+  formatRequestsSheet(sh)
 }
 
 // シートのヘッダーに不足している列があれば追記する（既存シートの移行用）
