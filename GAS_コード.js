@@ -973,21 +973,33 @@ function generateAttendanceCalendar(month) {
     days.push({ d, dow, ds, holiday: !!HOLIDAYS[ds] })
   }
 
-  const COLS = 7  // 日付 曜日 出勤 退勤 休憩 実働 残業
-  const blank = () => new Array(COLS).fill('')
-  const rows = []
-  const titleRows = [], headerRows = [], totalRows = [], weekendRows = [], moreRows = []
+  // 横並びレイアウト： 日付(1) 曜日(2) ｜ 職員ごとに 出勤・退勤・休憩・実働・残業 の5列
+  const S = emps.length
+  const LAST_COL = 2 + 5 * S
+  const R = 2 + N + 1  // 見出し2行 + 日数 + 合計1行
+  const grid = []
+  for (let i = 0; i < R; i++) grid.push(new Array(Math.max(LAST_COL, 2)).fill(''))
 
-  for (const emp of emps) {
-    const tr = blank()
-    tr[0] = `■ ${emp.name}` + (emp.kbn ? `（${emp.kbn}）` : '')
-    titleRows.push(rows.length + 1); rows.push(tr)
+  // 見出し（1行目=職員名、2行目=各列）
+  grid[0][0] = '日付'; grid[0][1] = '曜日'
+  emps.forEach((emp, s) => {
+    const b = 2 + s * 5
+    grid[0][b] = emp.name + (emp.kbn ? `（${emp.kbn}）` : '')
+    grid[1][b] = '出勤'; grid[1][b + 1] = '退勤'; grid[1][b + 2] = '休憩'; grid[1][b + 3] = '実働'; grid[1][b + 4] = '残業'
+  })
 
-    headerRows.push(rows.length + 1)
-    rows.push(['日付', '曜日', '出勤', '退勤', '休憩', '実働', '残業'])
+  const sums = emps.map(() => ({ work: 0, ot: 0 }))
+  const weekendRows = []           // 1始まりの行番号（土日祝は行全体グレー）
+  const moreCells = []             // {row, col} 打刻もれ（職員グループ先頭列）
 
-    let sumWork = 0, sumOt = 0
-    for (const day of days) {
+  days.forEach((day, di) => {
+    const sheetRow = 3 + di        // 日は3行目から
+    const arr = grid[2 + di]
+    arr[0] = `${m}/${day.d}`; arr[1] = DOW[day.dow]
+    const isWknd = day.dow === 0 || day.dow === 6
+    if (isWknd || day.holiday) weekendRows.push(sheetRow)
+    emps.forEach((emp, s) => {
+      const b  = 2 + s * 5
       const r  = att[emp.id + '_' + day.ds]
       const ci = r ? r['出勤'] : null
       const co = r ? r['退勤'] : null
@@ -998,73 +1010,70 @@ function generateAttendanceCalendar(month) {
       let brk = ''
       if (bs instanceof Date && be instanceof Date) brk = fmtTime(bs) + '〜' + fmtTime(be)
       else if (spansLunch(ci, co)) brk = '13:00〜14:00'
+      arr[b] = fmtTime(ci); arr[b + 1] = fmtTime(co); arr[b + 2] = brk; arr[b + 3] = work; arr[b + 4] = ot
+      if (typeof work === 'number') sums[s].work += work
+      if (typeof ot === 'number') sums[s].ot += ot
+      if (!isWknd && !day.holiday && !(ci instanceof Date)) moreCells.push({ row: sheetRow, col: b + 1 })  // 1始まり列
+    })
+  })
 
-      const rowIdx = rows.length + 1
-      const isWknd = day.dow === 0 || day.dow === 6
-      if (!isWknd && !day.holiday && !(ci instanceof Date)) moreRows.push(rowIdx)   // 平日なのに打刻なし＝もれ
-      else if (isWknd || day.holiday) weekendRows.push(rowIdx)
-
-      rows.push([`${m}/${day.d}`, DOW[day.dow], fmtTime(ci), fmtTime(co), brk, work, ot])
-      if (typeof work === 'number') sumWork += work
-      if (typeof ot === 'number') sumOt += ot
-    }
-
-    totalRows.push(rows.length + 1)
-    const tot = blank()
-    tot[0] = '月合計'; tot[5] = Math.round(sumWork * 100) / 100; tot[6] = Math.round(sumOt * 100) / 100
-    rows.push(tot)
-    rows.push(blank())  // 職員の区切り
-  }
+  // 合計行
+  grid[R - 1][0] = '月合計'
+  emps.forEach((emp, s) => {
+    const b = 2 + s * 5
+    grid[R - 1][b + 3] = Math.round(sums[s].work * 100) / 100
+    grid[R - 1][b + 4] = Math.round(sums[s].ot * 100) / 100
+  })
 
   // シート作成（月ごとに別シート）
   const sheetName = `打刻カレンダー ${month}`
   let sh = SS.getSheetByName(sheetName)
   if (sh) sh.clear(); else sh = SS.insertSheet(sheetName)
   sh.setFrozenRows(0); sh.setFrozenColumns(0)
-  if (sh.getMaxColumns() < COLS) sh.insertColumnsAfter(sh.getMaxColumns(), COLS - sh.getMaxColumns())
-  if (rows.length && sh.getMaxRows() < rows.length) sh.insertRowsAfter(sh.getMaxRows(), rows.length - sh.getMaxRows())
+  if (sh.getMaxColumns() < LAST_COL) sh.insertColumnsAfter(sh.getMaxColumns(), LAST_COL - sh.getMaxColumns())
+  if (sh.getMaxRows() < R) sh.insertRowsAfter(sh.getMaxRows(), R - sh.getMaxRows())
   sh.getRange(1, 1, sh.getMaxRows(), sh.getMaxColumns()).breakApart()
-  if (!rows.length) return { success: true, sheet: sheetName, month, staff: 0 }
-  sh.getRange(1, 1, rows.length, COLS).setValues(rows)
+  if (!S) return { success: true, sheet: sheetName, month, staff: 0 }
+  sh.getRange(1, 1, R, LAST_COL).setValues(grid)
 
-  // 背景色をまとめて適用
-  const bg = rows.map(() => new Array(COLS).fill(null))
-  titleRows.forEach(i   => bg[i - 1].fill('#fce8ef'))
-  headerRows.forEach(i  => bg[i - 1].fill('#f0f0f0'))
-  totalRows.forEach(i   => bg[i - 1].fill('#eef2ff'))
-  weekendRows.forEach(i => bg[i - 1].fill('#f3f4f6'))
-  moreRows.forEach(i    => bg[i - 1].fill('#fecaca'))   // 打刻もれ＝赤
-  sh.getRange(1, 1, rows.length, COLS).setBackgrounds(bg)
+  // 背景色
+  const bg = grid.map(() => new Array(LAST_COL).fill(null))
+  bg[0].fill('#fce8ef')            // 職員名
+  bg[1].fill('#f0f0f0')            // 各列見出し
+  bg[R - 1].fill('#eef2ff')        // 合計
+  weekendRows.forEach(sr => bg[sr - 1].fill('#f3f4f6'))                       // 土日祝＝行全体グレー
+  moreCells.forEach(c => { for (let k = 0; k < 5; k++) bg[c.row - 1][c.col - 1 + k] = '#fecaca' })  // もれ＝赤
+  sh.getRange(1, 1, R, LAST_COL).setBackgrounds(bg)
 
-  // 実働・残業は小数2桁、時刻列などは中央寄せ
-  sh.getRange(1, 6, rows.length, 2).setNumberFormat('0.00')
-  sh.getRange(1, 2, rows.length, COLS - 1).setHorizontalAlignment('center')
-  sh.getRange(1, 1, rows.length, COLS).setFontSize(10).setVerticalAlignment('middle')
+  // 体裁
+  sh.getRange(1, 1, R, LAST_COL).setFontSize(9).setVerticalAlignment('middle').setHorizontalAlignment('center')
+  sh.getRange(1, 1, 2, LAST_COL).setFontWeight('bold')
+  sh.getRange(R, 1, 1, LAST_COL).setFontWeight('bold')
+  emps.forEach((emp, s) => sh.getRange(1, 3 + s * 5 + 3, R, 2).setNumberFormat('0.00'))  // 実働・残業
 
-  // タイトル・合計行の結合と体裁
-  titleRows.forEach(i => sh.getRange(i, 1, 1, COLS).merge().setFontWeight('bold').setHorizontalAlignment('left').setFontSize(12))
-  headerRows.forEach(i => sh.getRange(i, 1, 1, COLS).setFontWeight('bold'))
-  totalRows.forEach(i => {
-    sh.getRange(i, 1, 1, 5).merge().setHorizontalAlignment('right').setFontWeight('bold')
-    sh.getRange(i, 6, 1, 2).setFontWeight('bold')
-  })
+  // 結合（日付・曜日の縦結合、職員名、合計ラベル）
+  sh.getRange(1, 1, 2, 1).merge()
+  sh.getRange(1, 2, 2, 1).merge()
+  emps.forEach((emp, s) => sh.getRange(1, 3 + s * 5, 1, 5).merge())
+  sh.getRange(R, 1, 1, 2).merge().setHorizontalAlignment('right')
 
-  // 罫線（各職員ブロックのヘッダー〜合計に）
-  for (let b = 0; b < headerRows.length; b++) {
-    sh.getRange(headerRows[b], 1, totalRows[b] - headerRows[b] + 1, COLS)
-      .setBorder(true, true, true, true, true, true, '#d1d5db', SpreadsheetApp.BorderStyle.SOLID)
-  }
+  // 罫線＋職員グループの区切り線
+  sh.getRange(1, 1, R, LAST_COL).setBorder(true, true, true, true, true, true, '#e5e7eb', SpreadsheetApp.BorderStyle.SOLID)
+  emps.forEach((emp, s) => sh.getRange(1, 3 + s * 5, R, 1).setBorder(null, true, null, null, null, null, '#9ca3af', SpreadsheetApp.BorderStyle.SOLID_MEDIUM))
+
+  // 日付・曜日を左に固定、見出し2行を上に固定
+  sh.setFrozenRows(2)
+  sh.setFrozenColumns(2)
 
   // 列幅
-  sh.setColumnWidth(1, 52)   // 日付
-  sh.setColumnWidth(2, 40)   // 曜日
-  sh.setColumnWidth(3, 58)   // 出勤
-  sh.setColumnWidth(4, 58)   // 退勤
-  sh.setColumnWidth(5, 108)  // 休憩
-  sh.setColumnWidth(6, 56)   // 実働
-  sh.setColumnWidth(7, 56)   // 残業
+  sh.setColumnWidth(1, 48); sh.setColumnWidth(2, 34)
+  emps.forEach((emp, s) => {
+    const b = 3 + s * 5
+    sh.setColumnWidth(b, 48); sh.setColumnWidth(b + 1, 48); sh.setColumnWidth(b + 2, 90)
+    sh.setColumnWidth(b + 3, 44); sh.setColumnWidth(b + 4, 44)
+  })
 
-  return { success: true, sheet: sheetName, month, staff: emps.length }
+  return { success: true, sheet: sheetName, month, staff: S }
 }
 
 // =====================================================
