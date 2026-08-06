@@ -315,6 +315,7 @@ function doPost(e) {
       case 'deleteTeam':     result = handleDeleteTeam(data); break
       case 'deleteEmployee': result = handleDeleteEmployee(data); break
       case 'generateSchedule': result = generateScheduleSheet(data.month); break
+      case 'generateCalendar': result = generateAttendanceCalendar(data.month); break
       default:               result = { error: '不明なアクション: ' + data.action }
     }
   } catch (err) {
@@ -924,6 +925,144 @@ function generateScheduleSheet(month) {
 
   // 見出し行を固定（列の固定はタイトルの全列結合と競合するため行わない）
   sh.setFrozenRows(HEADER_ROWS)
+
+  return { success: true, sheet: sheetName, month, staff: emps.length }
+}
+
+// =====================================================
+// 打刻カレンダー（職員ごと・全日表示・打刻もれが一目で分かる）
+// =====================================================
+// 対象月ごとに「打刻カレンダー YYYY-MM」シートを作成。
+// 1シートに全職員を縦に並べ、各職員は 1日〜月末を全部表示する。
+function fmtTime(v) {
+  return v instanceof Date ? Utilities.formatDate(v, 'Asia/Tokyo', 'H:mm') : ''
+}
+// 勤務が昼休み(13:00-14:00)をまたいでいるか（正社・フルタイムパートの通常勤務）
+function spansLunch(ci, co) {
+  if (!(ci instanceof Date) || !(co instanceof Date)) return false
+  const cim = ci.getHours() * 60 + ci.getMinutes()
+  const com = co.getHours() * 60 + co.getMinutes()
+  return cim <= 13 * 60 && com >= 14 * 60
+}
+
+function generateAttendanceCalendar(month) {
+  if (!month) month = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM')
+  const [y, m] = month.split('-').map(Number)
+  const N = new Date(y, m, 0).getDate()
+
+  ensureColumns('employees')
+  const emps = sheetToObjects('employees')
+    .filter(r => r['有効'] === true || r['有効'] === 'TRUE' || r['有効'] === 'true')
+    .map(r => ({ id: String(r['ID']), name: r['名前'] || '', kbn: empKbn(r), sort: Number(r['順序']) || 0 }))
+    .sort((a, b) => a.sort - b.sort)
+
+  // 当月の打刻を (スタッフID_日付) で索引
+  const from = `${month}-01`, to = `${month}-${String(N).padStart(2, '0')}`
+  const att = {}
+  for (const r of sheetToObjects('attendance')) {
+    const d = normDate(r['日付'])
+    if (d < from || d > to) continue
+    att[String(r['スタッフID']) + '_' + d] = r
+  }
+
+  const DOW = ['日', '月', '火', '水', '木', '金', '土']
+  const days = []
+  for (let d = 1; d <= N; d++) {
+    const dow = new Date(y, m - 1, d).getDay()
+    const ds  = `${month}-${String(d).padStart(2, '0')}`
+    days.push({ d, dow, ds, holiday: !!HOLIDAYS[ds] })
+  }
+
+  const COLS = 7  // 日付 曜日 出勤 退勤 休憩 実働 残業
+  const blank = () => new Array(COLS).fill('')
+  const rows = []
+  const titleRows = [], headerRows = [], totalRows = [], weekendRows = [], moreRows = []
+
+  for (const emp of emps) {
+    const tr = blank()
+    tr[0] = `■ ${emp.name}` + (emp.kbn ? `（${emp.kbn}）` : '')
+    titleRows.push(rows.length + 1); rows.push(tr)
+
+    headerRows.push(rows.length + 1)
+    rows.push(['日付', '曜日', '出勤', '退勤', '休憩', '実働', '残業'])
+
+    let sumWork = 0, sumOt = 0
+    for (const day of days) {
+      const r  = att[emp.id + '_' + day.ds]
+      const ci = r ? r['出勤'] : null
+      const co = r ? r['退勤'] : null
+      const bs = r ? r['休憩イン'] : null
+      const be = r ? r['休憩アウト'] : null
+      const work = r && r['実働'] !== null && r['実働'] !== '' ? Number(r['実働']) : ''
+      const ot   = r && r['残業'] !== null && r['残業'] !== '' ? Number(r['残業']) : ''
+      let brk = ''
+      if (bs instanceof Date && be instanceof Date) brk = fmtTime(bs) + '〜' + fmtTime(be)
+      else if (spansLunch(ci, co)) brk = '13:00〜14:00'
+
+      const rowIdx = rows.length + 1
+      const isWknd = day.dow === 0 || day.dow === 6
+      if (!isWknd && !day.holiday && !(ci instanceof Date)) moreRows.push(rowIdx)   // 平日なのに打刻なし＝もれ
+      else if (isWknd || day.holiday) weekendRows.push(rowIdx)
+
+      rows.push([`${m}/${day.d}`, DOW[day.dow], fmtTime(ci), fmtTime(co), brk, work, ot])
+      if (typeof work === 'number') sumWork += work
+      if (typeof ot === 'number') sumOt += ot
+    }
+
+    totalRows.push(rows.length + 1)
+    const tot = blank()
+    tot[0] = '月合計'; tot[5] = Math.round(sumWork * 100) / 100; tot[6] = Math.round(sumOt * 100) / 100
+    rows.push(tot)
+    rows.push(blank())  // 職員の区切り
+  }
+
+  // シート作成（月ごとに別シート）
+  const sheetName = `打刻カレンダー ${month}`
+  let sh = SS.getSheetByName(sheetName)
+  if (sh) sh.clear(); else sh = SS.insertSheet(sheetName)
+  sh.setFrozenRows(0); sh.setFrozenColumns(0)
+  if (sh.getMaxColumns() < COLS) sh.insertColumnsAfter(sh.getMaxColumns(), COLS - sh.getMaxColumns())
+  if (rows.length && sh.getMaxRows() < rows.length) sh.insertRowsAfter(sh.getMaxRows(), rows.length - sh.getMaxRows())
+  sh.getRange(1, 1, sh.getMaxRows(), sh.getMaxColumns()).breakApart()
+  if (!rows.length) return { success: true, sheet: sheetName, month, staff: 0 }
+  sh.getRange(1, 1, rows.length, COLS).setValues(rows)
+
+  // 背景色をまとめて適用
+  const bg = rows.map(() => new Array(COLS).fill(null))
+  titleRows.forEach(i   => bg[i - 1].fill('#fce8ef'))
+  headerRows.forEach(i  => bg[i - 1].fill('#f0f0f0'))
+  totalRows.forEach(i   => bg[i - 1].fill('#eef2ff'))
+  weekendRows.forEach(i => bg[i - 1].fill('#f3f4f6'))
+  moreRows.forEach(i    => bg[i - 1].fill('#fecaca'))   // 打刻もれ＝赤
+  sh.getRange(1, 1, rows.length, COLS).setBackgrounds(bg)
+
+  // 実働・残業は小数2桁、時刻列などは中央寄せ
+  sh.getRange(1, 6, rows.length, 2).setNumberFormat('0.00')
+  sh.getRange(1, 2, rows.length, COLS - 1).setHorizontalAlignment('center')
+  sh.getRange(1, 1, rows.length, COLS).setFontSize(10).setVerticalAlignment('middle')
+
+  // タイトル・合計行の結合と体裁
+  titleRows.forEach(i => sh.getRange(i, 1, 1, COLS).merge().setFontWeight('bold').setHorizontalAlignment('left').setFontSize(12))
+  headerRows.forEach(i => sh.getRange(i, 1, 1, COLS).setFontWeight('bold'))
+  totalRows.forEach(i => {
+    sh.getRange(i, 1, 1, 5).merge().setHorizontalAlignment('right').setFontWeight('bold')
+    sh.getRange(i, 6, 1, 2).setFontWeight('bold')
+  })
+
+  // 罫線（各職員ブロックのヘッダー〜合計に）
+  for (let b = 0; b < headerRows.length; b++) {
+    sh.getRange(headerRows[b], 1, totalRows[b] - headerRows[b] + 1, COLS)
+      .setBorder(true, true, true, true, true, true, '#d1d5db', SpreadsheetApp.BorderStyle.SOLID)
+  }
+
+  // 列幅
+  sh.setColumnWidth(1, 52)   // 日付
+  sh.setColumnWidth(2, 40)   // 曜日
+  sh.setColumnWidth(3, 58)   // 出勤
+  sh.setColumnWidth(4, 58)   // 退勤
+  sh.setColumnWidth(5, 108)  // 休憩
+  sh.setColumnWidth(6, 56)   // 実働
+  sh.setColumnWidth(7, 56)   // 残業
 
   return { success: true, sheet: sheetName, month, staff: emps.length }
 }
