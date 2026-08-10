@@ -1008,7 +1008,7 @@ async function loadPersonalRecord() {
         const DOW = ['日','月','火','水','木','金','土']
         // 長期休業期間の判定（実働の休憩控除に使う）
         const inLongBreak = ds => longBreaks.some(b => ds >= b.from && ds <= b.to)
-        let rows = '', totalMins = 0
+        let rows = '', totalMins = 0, totalOver = 0
 
         for (let d = 1; d <= lastDay; d++) {
             const ds = `${month}-${String(d).padStart(2,'0')}`
@@ -1028,6 +1028,7 @@ async function loadPersonalRecord() {
             const dayTotal  = worked + leaveMins - nakMins
             if (!ci && !co && !leaveLabel) continue
             totalMins += dayTotal
+            totalOver += Math.max(0, worked - 480)  // 1日8時間(480分)を超えた分
             const color = (dow===0||dow===6) ? '#9ca3af' : '#374151'
             const leaveBadge = leaveLabel
                 ? `<span style="background:#fbcfe8;color:#9d174d;font-size:9px;padding:1px 4px;border-radius:999px;font-weight:600;white-space:nowrap">${leaveLabel}</span>`
@@ -1051,6 +1052,10 @@ async function loadPersonalRecord() {
         rows += `<tr style="background:#fff0f4;font-weight:700;border-top:2px solid #f9a8d4">
             <td style="padding:6px 6px;font-size:13px" colspan="5">合計勤務時間</td>
             <td style="padding:6px 3px;font-size:14px;text-align:center;color:#c05070">${toHHMMFn(totalMins)}</td>
+        </tr>
+        <tr style="background:#fff0f4;font-weight:700">
+            <td style="padding:6px 6px;font-size:12px;color:#9d5050" colspan="5">うち超過分（1日8時間を超えた分）</td>
+            <td style="padding:6px 3px;font-size:13px;text-align:center;color:#dc2626">${totalOver > 0 ? toHHMMFn(totalOver) : '-'}</td>
         </tr>`
 
         document.getElementById('personal-tbl').innerHTML =
