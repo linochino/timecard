@@ -986,7 +986,6 @@ async function loadPersonalRecord() {
 
         const attData = attRes.data || []
         const reqData = reqRes.data || []
-        const overtime = attRes.overtime || {}  // 日ごとの残業（手入力・時間）
 
         const byDate = {}
         for (const r of attData) {
@@ -1009,7 +1008,7 @@ async function loadPersonalRecord() {
         const DOW = ['日','月','火','水','木','金','土']
         // 長期休業期間の判定（実働の休憩控除に使う）
         const inLongBreak = ds => longBreaks.some(b => ds >= b.from && ds <= b.to)
-        let rows = '', totalMins = 0, totalOt = 0
+        let rows = '', totalMins = 0
 
         for (let d = 1; d <= lastDay; d++) {
             const ds = `${month}-${String(d).padStart(2,'0')}`
@@ -1027,17 +1026,12 @@ async function loadPersonalRecord() {
             const nakMins   = calcNakMinsFn(nakByDate[ds])
             const worked    = calcMinsFn(recs, inLongBreak(ds))
             const dayTotal  = worked + leaveMins - nakMins
-            const ot        = Math.round((overtime[ds] || 0) * 60)  // 残業＝シートに手入力された時間（分に変換）
-            const pending   = pendingByDate[ds] || []
-            if (!ci && !co && !leaveLabel && !pending.length) continue
-            totalMins += dayTotal; totalOt += ot
+            if (!ci && !co && !leaveLabel) continue
+            totalMins += dayTotal
             const color = (dow===0||dow===6) ? '#9ca3af' : '#374151'
             const leaveBadge = leaveLabel
                 ? `<span style="background:#fbcfe8;color:#9d174d;font-size:9px;padding:1px 4px;border-radius:999px;font-weight:600;white-space:nowrap">${leaveLabel}</span>`
                 : ''
-            const pendingBadge = pending.length > 0
-                ? `<span style="background:#fef08a;color:#854d0e;font-size:9px;padding:2px 6px;border-radius:999px;font-weight:600;white-space:nowrap;cursor:pointer" onclick="showPendingRequests('${ds}',${JSON.stringify(pending).replace(/'/g,"&#39;")})" title="クリックで申請内容を確認">申請待ち</span>`
-                : '-'
             rows += `<tr style="border-bottom:1px solid #fce8ef;color:${color}">
                 <td style="padding:5px 6px;font-size:12px;white-space:nowrap;font-weight:600">${parseInt(mon)}/${d}（${DOW[dow]}）</td>
                 <td style="padding:5px 3px;font-size:12px;text-align:center">${ci ? fmt(ci.timestamp) : (leaveBadge||'-')}</td>
@@ -1045,8 +1039,6 @@ async function loadPersonalRecord() {
                 <td style="padding:5px 3px;font-size:12px;text-align:center">${be ? fmt(be.timestamp) : '-'}</td>
                 <td style="padding:5px 3px;font-size:12px;text-align:center">${co ? fmt(co.timestamp) : '-'}</td>
                 <td style="padding:5px 3px;font-size:13px;text-align:center;font-weight:700;color:#c05070">${dayTotal > 0 ? toHHMMFn(dayTotal) : '-'}</td>
-                <td style="padding:5px 3px;font-size:12px;text-align:center;font-weight:700;color:#dc2626">${ot > 0 ? toHHMMFn(ot) : '-'}</td>
-                <td style="padding:5px 3px;font-size:12px;text-align:center">${pendingBadge}</td>
             </tr>`
         }
 
@@ -1057,9 +1049,8 @@ async function loadPersonalRecord() {
             return
         }
         rows += `<tr style="background:#fff0f4;font-weight:700;border-top:2px solid #f9a8d4">
-            <td style="padding:6px 6px;font-size:12px" colspan="6">合計</td>
-            <td style="padding:6px 3px;font-size:13px;text-align:center;color:#c05070">${toHHMMFn(totalMins)}</td>
-            <td style="padding:6px 3px;font-size:12px;text-align:center;color:#dc2626">${totalOt > 0 ? toHHMMFn(totalOt) : '-'}</td>
+            <td style="padding:6px 6px;font-size:13px" colspan="5">合計勤務時間</td>
+            <td style="padding:6px 3px;font-size:14px;text-align:center;color:#c05070">${toHHMMFn(totalMins)}</td>
         </tr>`
 
         document.getElementById('personal-tbl').innerHTML =
@@ -1071,8 +1062,6 @@ async function loadPersonalRecord() {
                     <th style="padding:6px 3px;font-size:10px;color:#c05070;text-align:center">休憩アウト</th>
                     <th style="padding:6px 3px;font-size:10px;color:#c05070;text-align:center">退勤</th>
                     <th style="padding:6px 3px;font-size:10px;color:#c05070;text-align:center">勤務</th>
-                    <th style="padding:6px 3px;font-size:10px;color:#dc2626;text-align:center">残業</th>
-                    <th style="padding:6px 3px;font-size:10px;color:#854d0e;text-align:center">申請</th>
                 </tr></thead>
                 <tbody>${rows}</tbody>
             </table>` + buildCarTable(carRecords, parseInt(mon))
