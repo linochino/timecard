@@ -927,7 +927,8 @@ function overlapMins(ci, co, sh, eh) {
 }
 
 // 実働（分）を計算。打刻記録シート（GAS recalcWork）と同じルール：
-//  休憩＝打刻があれば実時間／長期休業中のパートは0／それ以外は昼13-14の重なり
+//  休憩＝打刻があれば実時間／長期休業中は0（正社・パートとも）／それ以外は昼13-14の重なり
+//  ※kbn は残業判定(calcOvertimeFn)用。休憩控除には使わない
 function calcMinsFn(records, kbn, isLongBreak) {
     const sorted = [...records].sort((a,b) => new Date(a.timestamp)-new Date(b.timestamp))
     let ci = null, co = null, bs = null, punchedBrk = 0
@@ -941,7 +942,7 @@ function calcMinsFn(records, kbn, isLongBreak) {
     if (!ci || !co) return 0
     let brk
     if (punchedBrk > 0) brk = punchedBrk
-    else if (kbn === 'パート' && isLongBreak) brk = 0
+    else if (isLongBreak) brk = 0   // 長期休業中は正社・パートとも控除なし
     else brk = overlapMins(ci, co, 13, 14)
     return Math.max(0, Math.floor((co - ci) / 60000 - brk))
 }

@@ -567,12 +567,12 @@ function recalcWork(sh, row, kbn) {
   let mins = (co.getTime() - ci.getTime()) / 60000
   // 休憩の控除ルール：
   //   ① 休憩を打刻した日 → その実時間
-  //   ② 長期休業中のパート → 控除しない（0）
+  //   ② 長期休業中 → 正社・パートとも控除しない（0）
   //   ③ それ以外 → 固定昼休み(13-14)にかかった分
   let breakMins
   if (bs instanceof Date && be instanceof Date) {
     breakMins = (be.getTime() - bs.getTime()) / 60000
-  } else if (kbn === 'パート' && isLongBreakDate(normDate(v[0]))) {
+  } else if (isLongBreakDate(normDate(v[0]))) {
     breakMins = 0
   } else {
     breakMins = overlapMinutes(ci, co, FIXED_BREAK.start, FIXED_BREAK.end)
