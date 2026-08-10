@@ -928,8 +928,7 @@ function overlapMins(ci, co, sh, eh) {
 
 // 実働（分）を計算。打刻記録シート（GAS recalcWork）と同じルール：
 //  休憩＝打刻があれば実時間／長期休業中は0（正社・パートとも）／それ以外は昼13-14の重なり
-//  ※kbn は残業判定(calcOvertimeFn)用。休憩控除には使わない
-function calcMinsFn(records, kbn, isLongBreak) {
+function calcMinsFn(records, isLongBreak) {
     const sorted = [...records].sort((a,b) => new Date(a.timestamp)-new Date(b.timestamp))
     let ci = null, co = null, bs = null, punchedBrk = 0
     for (const r of sorted) {
@@ -947,11 +946,8 @@ function calcMinsFn(records, kbn, isLongBreak) {
     return Math.max(0, Math.floor((co - ci) / 60000 - brk))
 }
 
-// 残業（分）。正社のみ・実働が8時間(480分)を超えた分。パートは残業なし
-function calcOvertimeFn(workedMins, kbn) {
-    if (kbn !== '正社') return 0
-    return Math.max(0, workedMins - 480)
-}
+// 残業は自動計算しない。打刻記録シートの「残業」列に手入力された値をそのまま使う
+// （申請があった日だけ計上する運用）
 
 function calcLeaveMinsFn(req) {
     if (!req) return 0
@@ -990,6 +986,7 @@ async function loadPersonalRecord() {
 
         const attData = attRes.data || []
         const reqData = reqRes.data || []
+        const overtime = attRes.overtime || {}  // 日ごとの残業（手入力・時間）
 
         const byDate = {}
         for (const r of attData) {
@@ -1010,9 +1007,7 @@ async function loadPersonalRecord() {
 
         const fmt = t => new Date(t).toLocaleTimeString('ja-JP', {hour:'2-digit',minute:'2-digit'})
         const DOW = ['日','月','火','水','木','金','土']
-        // このスタッフの雇用区分（正社/パート）と、長期休業期間の判定（実働計算に使う）
-        const empRec = emps.find(e => e.id === personalEmpId)
-        const kbn = empRec ? (empRec.employment_kbn || '') : ''
+        // 長期休業期間の判定（実働の休憩控除に使う）
         const inLongBreak = ds => longBreaks.some(b => ds >= b.from && ds <= b.to)
         let rows = '', totalMins = 0, totalOt = 0
 
@@ -1030,9 +1025,9 @@ async function loadPersonalRecord() {
                 : ''
             const leaveMins = calcLeaveMinsFn(leave)
             const nakMins   = calcNakMinsFn(nakByDate[ds])
-            const worked    = calcMinsFn(recs, kbn, inLongBreak(ds))
+            const worked    = calcMinsFn(recs, inLongBreak(ds))
             const dayTotal  = worked + leaveMins - nakMins
-            const ot        = calcOvertimeFn(worked, kbn)
+            const ot        = Math.round((overtime[ds] || 0) * 60)  // 残業＝シートに手入力された時間（分に変換）
             const pending   = pendingByDate[ds] || []
             if (!ci && !co && !leaveLabel && !pending.length) continue
             totalMins += dayTotal; totalOt += ot

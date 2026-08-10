@@ -374,7 +374,16 @@ function handleGetAttendance(params) {
       date:        r.date,
       timestamp:   r.timestamp
     }))
-  return { data }
+  // 日ごとの残業（打刻記録シートに手入力された時間・時間単位）も返す
+  const overtime = {}
+  for (const r of sheetToObjects('attendance')) {
+    if (String(r['スタッフID']) !== empId) continue
+    const d = normDate(r['日付'])
+    if (d < from || d > to) continue
+    const ot = Number(r['残業'])
+    if (ot) overtime[d] = ot
+  }
+  return { data, overtime }
 }
 
 // 申請データ取得（月次集計用）
@@ -556,12 +565,13 @@ function isLongBreakDate(ds) {
   return getLongBreaks().some(b => ds >= b.from && ds <= b.to)
 }
 
-// その行の実働・残業を計算して書き込む（出勤・退勤がそろっていれば）
+// その行の実働を計算して書き込む（出勤・退勤がそろっていれば）
+// ※残業は自動計算しない。申請があった日だけ「残業」列に手入力する運用なので、残業列(7)には触れない
 function recalcWork(sh, row, kbn) {
   const v  = sh.getRange(row, 1, 1, ATT_EMPID_COL).getValues()[0]
   const ci = v[3], co = v[4], bs = v[7], be = v[8]  // 出勤・退勤・休憩イン・休憩アウト
   if (!(ci instanceof Date) || !(co instanceof Date)) {
-    sh.getRange(row, 6, 1, 2).clearContent()  // まだ計算できない
+    sh.getRange(row, 6).clearContent()  // 実働だけ消す（残業は手入力なので触らない）
     return
   }
   let mins = (co.getTime() - ci.getTime()) / 60000
@@ -579,12 +589,7 @@ function recalcWork(sh, row, kbn) {
   }
   mins = Math.max(0, mins - breakMins)
   sh.getRange(row, 6).setValue(Math.round(mins / 60 * 100) / 100)  // 実働(時間)
-  // 残業：正社のみ。所定(8h)を超えた分。パートは空欄
-  if (kbn === '正社') {
-    sh.getRange(row, 7).setValue(Math.round(Math.max(0, mins - STD_WORK_MIN) / 60 * 100) / 100)
-  } else {
-    sh.getRange(row, 7).clearContent()
-  }
+  // 残業は自動計算しない（申請があった日だけ、残業列に手入力する）
 }
 
 // 打刻記録を 日付→スタッフ名 の順に並べ替え
