@@ -433,16 +433,6 @@
             <input class="admin-input" id="schedule-month" type="month">
             <button class="admin-btn" style="background:#7c3aed;margin-top:6px" onclick="generateSchedule()">スプレッドシートに作成</button>
         </div>
-        <div class="admin-card" style="margin-top:10px">
-            <h3>🗓 打刻カレンダーを作成</h3>
-            <p style="font-size:12px;color:#6b7280;margin-bottom:10px;line-height:1.6">
-                職員ごとに、1日〜月末を全部並べた打刻表を作成します。<br>
-                打刻もれの日（平日で打刻なし）は赤で表示されます。
-            </p>
-            <label style="font-size:12px;color:#6b7280;display:block;margin-bottom:6px;font-weight:600">対象月</label>
-            <input class="admin-input" id="calendar-month" type="month">
-            <button class="admin-btn" style="background:#0891b2;margin-top:6px" onclick="generateCalendar()">スプレッドシートに作成</button>
-        </div>
         <div class="url-reset"><a onclick="resetUrl()">🔗 GAS URLを変更する</a></div>
     </div>
 
@@ -1224,8 +1214,6 @@ async function showAdmin() {
     const thisMonth = new Date().toLocaleDateString('sv-SE').slice(0, 7)
     const sm = document.getElementById('schedule-month')
     if (sm && !sm.value) sm.value = thisMonth
-    const cm = document.getElementById('calendar-month')
-    if (cm && !cm.value) cm.value = thisMonth
     show('v-admin')
     loadPendingApprovals()
     await renderAdminEmpList()
@@ -1286,23 +1274,6 @@ async function generateSchedule() {
     try {
         const res = await gasPost({ action: 'generateSchedule', month })
         alert(`スプレッドシートに「勤務形態一覧表」を作成しました。\n対象月: ${res.month}　スタッフ: ${res.staff}名`)
-    } catch (e) {
-        alert('エラー: ' + e.message)
-    } finally {
-        if (btn) { btn.disabled = false; btn.textContent = 'スプレッドシートに作成' }
-    }
-}
-
-// 打刻カレンダーをスプレッドシートに生成
-async function generateCalendar() {
-    const month = document.getElementById('calendar-month').value
-    if (!month) return alert('対象月を選択してください')
-    if (!confirm(`${month} の打刻カレンダーを作成しますか？\n（同じ月の既存シートは上書きされます）`)) return
-    const btn = event && event.target
-    if (btn) { btn.disabled = true; btn.textContent = '作成中…' }
-    try {
-        const res = await gasPost({ action: 'generateCalendar', month })
-        alert(`スプレッドシートに「打刻カレンダー ${res.month}」を作成しました。\nスタッフ: ${res.staff}名`)
     } catch (e) {
         alert('エラー: ' + e.message)
     } finally {
