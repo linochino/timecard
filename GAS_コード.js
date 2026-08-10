@@ -551,6 +551,11 @@ function handleRecord(data) {
   return { success: true, timestamp: toIso(now) }
 }
 
+// その日付が長期休業期間に入っているか
+function isLongBreakDate(ds) {
+  return getLongBreaks().some(b => ds >= b.from && ds <= b.to)
+}
+
 // その行の実働・残業を計算して書き込む（出勤・退勤がそろっていれば）
 function recalcWork(sh, row, kbn) {
   const v  = sh.getRange(row, 1, 1, ATT_EMPID_COL).getValues()[0]
@@ -560,10 +565,18 @@ function recalcWork(sh, row, kbn) {
     return
   }
   let mins = (co.getTime() - ci.getTime()) / 60000
-  // 休憩：打刻があればその実時間、なければ固定昼休み(13-14)の重なりを控除
-  let breakMins = (bs instanceof Date && be instanceof Date)
-    ? (be.getTime() - bs.getTime()) / 60000
-    : overlapMinutes(ci, co, FIXED_BREAK.start, FIXED_BREAK.end)
+  // 休憩の控除ルール：
+  //   ① 休憩を打刻した日 → その実時間
+  //   ② 長期休業中のパート → 控除しない（0）
+  //   ③ それ以外 → 固定昼休み(13-14)にかかった分
+  let breakMins
+  if (bs instanceof Date && be instanceof Date) {
+    breakMins = (be.getTime() - bs.getTime()) / 60000
+  } else if (kbn === 'パート' && isLongBreakDate(normDate(v[0]))) {
+    breakMins = 0
+  } else {
+    breakMins = overlapMinutes(ci, co, FIXED_BREAK.start, FIXED_BREAK.end)
+  }
   mins = Math.max(0, mins - breakMins)
   sh.getRange(row, 6).setValue(Math.round(mins / 60 * 100) / 100)  // 実働(時間)
   // 残業：正社のみ。所定(8h)を超えた分。パートは空欄

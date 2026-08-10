@@ -917,32 +917,39 @@ function toHHMMFn(mins) {
     return `${Math.floor(m/60)}:${String(m%60).padStart(2,'0')}`
 }
 
-function calcMinsFn(records) {
-    let ci = null, bs = null, brk = 0, result = 0
-    const sorted = [...records].sort((a,b) => new Date(a.timestamp)-new Date(b.timestamp))
-    for (const r of sorted) {
-        const t = new Date(r.timestamp)
-        if (r.type === 'clock_in') {
-            const cap = new Date(t); cap.setHours(9,0,0,0); ci = t < cap ? cap : t
-        } else if (r.type === 'break_start') {
-            bs = t
-        } else if (r.type === 'break_end' && bs) {
-            brk += (t - bs) / 60000; bs = null
-        } else if (r.type === 'clock_out' && ci) {
-            result = (t - ci) / 60000 - brk
-        }
-    }
-    const hasCO = records.some(r => r.type === 'clock_out')
-    if (hasCO && ci) { const elapsed = result + brk; if (elapsed >= 420 && brk < 60) result = elapsed - 60 }
-    return Math.max(0, Math.floor(result))
+// 2つの時刻区間の重なり（分）。固定昼休み(13-14)の控除に使う（GAS側と同じ計算）
+function overlapMins(ci, co, sh, eh) {
+    const bs = new Date(ci); bs.setHours(sh, 0, 0, 0)
+    const be = new Date(ci); be.setHours(eh, 0, 0, 0)
+    const s = Math.max(ci.getTime(), bs.getTime())
+    const e = Math.min(co.getTime(), be.getTime())
+    return e > s ? (e - s) / 60000 : 0
 }
 
-function calcOvertimeFn(records) {
-    const co = [...records].reverse().find(r => r.type === 'clock_out')
-    if (!co) return 0
-    const coTime = new Date(co.timestamp)
-    const base = new Date(coTime); base.setHours(18,0,0,0)
-    return coTime > base ? Math.floor((coTime-base)/60000) : 0
+// 実働（分）を計算。打刻記録シート（GAS recalcWork）と同じルール：
+//  休憩＝打刻があれば実時間／長期休業中のパートは0／それ以外は昼13-14の重なり
+function calcMinsFn(records, kbn, isLongBreak) {
+    const sorted = [...records].sort((a,b) => new Date(a.timestamp)-new Date(b.timestamp))
+    let ci = null, co = null, bs = null, punchedBrk = 0
+    for (const r of sorted) {
+        const t = new Date(r.timestamp)
+        if (r.type === 'clock_in') { if (!ci) ci = t }
+        else if (r.type === 'break_start') bs = t
+        else if (r.type === 'break_end' && bs) { punchedBrk += (t - bs) / 60000; bs = null }
+        else if (r.type === 'clock_out') co = t
+    }
+    if (!ci || !co) return 0
+    let brk
+    if (punchedBrk > 0) brk = punchedBrk
+    else if (kbn === 'パート' && isLongBreak) brk = 0
+    else brk = overlapMins(ci, co, 13, 14)
+    return Math.max(0, Math.floor((co - ci) / 60000 - brk))
+}
+
+// 残業（分）。正社のみ・実働が8時間(480分)を超えた分。パートは残業なし
+function calcOvertimeFn(workedMins, kbn) {
+    if (kbn !== '正社') return 0
+    return Math.max(0, workedMins - 480)
 }
 
 function calcLeaveMinsFn(req) {
@@ -1002,6 +1009,10 @@ async function loadPersonalRecord() {
 
         const fmt = t => new Date(t).toLocaleTimeString('ja-JP', {hour:'2-digit',minute:'2-digit'})
         const DOW = ['日','月','火','水','木','金','土']
+        // このスタッフの雇用区分（正社/パート）と、長期休業期間の判定（実働計算に使う）
+        const empRec = emps.find(e => e.id === personalEmpId)
+        const kbn = empRec ? (empRec.employment_kbn || '') : ''
+        const inLongBreak = ds => longBreaks.some(b => ds >= b.from && ds <= b.to)
         let rows = '', totalMins = 0, totalOt = 0
 
         for (let d = 1; d <= lastDay; d++) {
@@ -1018,9 +1029,9 @@ async function loadPersonalRecord() {
                 : ''
             const leaveMins = calcLeaveMinsFn(leave)
             const nakMins   = calcNakMinsFn(nakByDate[ds])
-            const worked    = calcMinsFn(recs)
+            const worked    = calcMinsFn(recs, kbn, inLongBreak(ds))
             const dayTotal  = worked + leaveMins - nakMins
-            const ot        = calcOvertimeFn(recs)
+            const ot        = calcOvertimeFn(worked, kbn)
             const pending   = pendingByDate[ds] || []
             if (!ci && !co && !leaveLabel && !pending.length) continue
             totalMins += dayTotal; totalOt += ot
