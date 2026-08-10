@@ -142,6 +142,14 @@
         .loading { text-align: center; color: #9ca3af; padding: 40px; font-size: 15px; }
         .hidden { display: none !important; }
 
+        /* 印刷：表示中の勤務記録だけをきれいに印刷（ヘッダー・戻る・矢印・ボタンは隠す） */
+        @media print {
+            header, .back-btn, .no-print { display: none !important; }
+            body { background: #fff !important; }
+            .wrap { max-width: 100% !important; margin: 0 !important; padding: 0 !important; }
+            #personal-tbl { overflow: visible !important; }
+        }
+
         /* セットアップ画面 */
         .setup-card {
             background: white; border-radius: 16px; padding: 28px 24px; margin-top: 20px;
@@ -393,6 +401,9 @@
             </div>
         </div>
         <div id="personal-tbl" style="overflow-x:auto;-webkit-overflow-scrolling:touch"></div>
+        <div class="no-print" style="text-align:center;margin-top:16px">
+            <button onclick="window.print()" style="background:#0891b2;color:#fff;border:none;border-radius:10px;padding:12px 28px;font-size:15px;font-weight:700;cursor:pointer">🖨 この月を印刷</button>
+        </div>
     </div>
 
     <!-- 管理画面 -->
